@@ -6,7 +6,7 @@ App web para la evaluación de residentes de Medicina Familiar con corrección a
 
 ## Stack
 - **Frontend:** React + Vite
-- **Corrección IA:** OpenRouter API
+- **Corrección IA:** Claude API (Anthropic)
 - **Deploy:** Vercel
 
 ---
@@ -19,7 +19,7 @@ npm install
 
 # 2. Crear archivo de variables de entorno
 cp .env.example .env
-# Completar VITE_OPENROUTER_API_KEY con tu API key
+# Completar VITE_ANTHROPIC_API_KEY con tu API key
 
 # 3. Correr en modo desarrollo
 npm run dev
@@ -34,15 +34,11 @@ Abre http://localhost:5173 en el navegador.
 Crear un archivo `.env` en la raíz del proyecto:
 
 ```
-VITE_OPENROUTER_API_KEY=sk-or-...
-VITE_OPENROUTER_SITE_URL=http://localhost:5173
-VITE_OPENROUTER_APP_NAME=ResidenciaMF
+VITE_ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 En Vercel, configurar esta misma variable en:
 Settings → Environment Variables
-
-La app permite elegir el modelo desde la interfaz del residente. Por defecto incluye opciones de OpenAI, Anthropic y Google servidas a través de OpenRouter.
 
 ---
 
@@ -51,7 +47,7 @@ La app permite elegir el modelo desde la interfaz del residente. Por defecto inc
 1. Subir este repositorio a GitHub
 2. Entrar a vercel.com → "Add New Project"
 3. Conectar el repositorio de GitHub
-4. En "Environment Variables" agregar `VITE_OPENROUTER_API_KEY`
+4. En "Environment Variables" agregar `VITE_ANTHROPIC_API_KEY`
 5. Click en "Deploy" — listo
 
 Vercel detecta automáticamente que es un proyecto Vite y configura todo solo.
