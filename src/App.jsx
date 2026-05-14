@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 // ── ORDEN DE DOMINIOS (flujo de consulta real) ───────────────────────────────
 const ORDEN_DOMINIOS = [
@@ -102,8 +102,43 @@ const DOMINIO_COLOR = {
   "Integrador": "#6b7fa3",
 };
 
-// ── LLAMADA A CLAUDE API ─────────────────────────────────────────────────────
-async function corregirConIA(pregunta, respuesta) {
+const OPENROUTER_API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY;
+const OPENROUTER_SITE_URL = import.meta.env.VITE_OPENROUTER_SITE_URL || window.location.origin;
+const OPENROUTER_APP_NAME = import.meta.env.VITE_OPENROUTER_APP_NAME || "ResidenciaMF";
+const OPENROUTER_KEY_STORAGE = "residenciamf_openrouter_api_key";
+const MODELOS_OPENROUTER = [
+  { value: "openai/gpt-4o-mini", label: "GPT-4o Mini" },
+  { value: "openai/gpt-4.1-mini", label: "GPT-4.1 Mini" },
+  { value: "anthropic/claude-3.5-sonnet", label: "Claude 3.5 Sonnet" },
+  { value: "google/gemini-2.0-flash-001", label: "Gemini 2.0 Flash" },
+];
+
+function getOpenRouterApiKey() {
+  return (
+    window.localStorage.getItem(OPENROUTER_KEY_STORAGE)?.trim() ||
+    OPENROUTER_API_KEY ||
+    ""
+  );
+}
+
+function extraerJson(texto) {
+  const limpio = texto.replace(/```json|```/g, "").trim();
+  const inicio = limpio.indexOf("{");
+  const fin = limpio.lastIndexOf("}");
+  if (inicio === -1 || fin === -1) {
+    throw new Error("La IA no devolvió un JSON válido.");
+  }
+  return JSON.parse(limpio.slice(inicio, fin + 1));
+}
+
+// ── LLAMADA A OPENROUTER ─────────────────────────────────────────────────────
+async function corregirConIA(pregunta, respuesta, modelo) {
+  const apiKey = getOpenRouterApiKey();
+
+  if (!apiKey) {
+    throw new Error("Falta configurar la API key de OpenRouter.");
+  }
+
   const cotejo_texto = pregunta.cotejo
     .map((c, i) => `Ítem ${i + 1} (${c.puntaje} pts): ${c.item}`)
     .join("\n");
@@ -139,20 +174,31 @@ Respondé ÚNICAMENTE con un JSON válido, sin texto adicional, con esta estruct
   "comentario_general": "feedback breve y constructivo en segunda persona del singular (tuteo argentino)"
 }`;
 
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+      "HTTP-Referer": OPENROUTER_SITE_URL,
+      "X-Title": OPENROUTER_APP_NAME,
+    },
     body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 1000,
+      model: modelo,
+      temperature: 0.2,
+      max_tokens: 1200,
+      response_format: { type: "json_object" },
       messages: [{ role: "user", content: prompt }],
     }),
   });
 
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`OpenRouter devolvió ${response.status}: ${errorText}`);
+  }
+
   const data = await response.json();
-  const text = data.content?.[0]?.text || "";
-  const clean = text.replace(/```json|```/g, "").trim();
-  return JSON.parse(clean);
+  const text = data.choices?.[0]?.message?.content || "";
+  return extraerJson(text);
 }
 
 // ── COMPONENTES UI ───────────────────────────────────────────────────────────
@@ -269,6 +315,13 @@ function VistaResidente({ usuario, onLogout }) {
   const [resultados, setResultados] = useState({});
   const [corrigiendo, setCorrigiendo] = useState(false);
   const [examenActivo, setExamenActivo] = useState(null);
+  const [modeloSeleccionado, setModeloSeleccionado] = useState(MODELOS_OPENROUTER[0].value);
+  const [apiKeyInput, setApiKeyInput] = useState(() => getOpenRouterApiKey());
+  const [apiKeyGuardada, setApiKeyGuardada] = useState(() => Boolean(getOpenRouterApiKey()));
+
+  useEffect(() => {
+    setApiKeyGuardada(Boolean(getOpenRouterApiKey()));
+  }, []);
 
   const casos = BANCO.filter(p => p.ano === "R1");
   const caso = casos[casoIdx];
@@ -319,6 +372,10 @@ function VistaResidente({ usuario, onLogout }) {
   const handleEnviar = async () => {
     setPaso("corrigiendo");
     try {
+      if (!getOpenRouterApiKey()) {
+        throw new Error("Cargá una API key de OpenRouter antes de corregir.");
+      }
+      setCorrigiendo(true);
       const nuevosResultados = {};
       for (const c of casos) {
         // Armar respuesta completa del caso juntando todas las consignas
@@ -328,15 +385,34 @@ function VistaResidente({ usuario, onLogout }) {
           return `[${dom?.label || con.dominio}]\nPregunta: ${con.texto}\nRespuesta: ${respuestas[k] || "(sin respuesta)"}`;
         }).join("\n\n");
 
-        const res = await corregirConIA(c, respuestaCompleta);
+        const res = await corregirConIA(c, respuestaCompleta, modeloSeleccionado);
         nuevosResultados[c.id] = res;
       }
       setResultados(nuevosResultados);
       setPaso("resultado");
     } catch (e) {
-      alert("Error al corregir. Revisá la conexión.");
+      alert(`Error al corregir: ${e.message}`);
       setPaso("examen");
+    } finally {
+      setCorrigiendo(false);
     }
+  };
+
+  const guardarApiKey = () => {
+    const limpia = apiKeyInput.trim();
+    if (!limpia) {
+      window.localStorage.removeItem(OPENROUTER_KEY_STORAGE);
+      setApiKeyGuardada(Boolean(OPENROUTER_API_KEY));
+      return;
+    }
+    window.localStorage.setItem(OPENROUTER_KEY_STORAGE, limpia);
+    setApiKeyGuardada(true);
+  };
+
+  const borrarApiKey = () => {
+    window.localStorage.removeItem(OPENROUTER_KEY_STORAGE);
+    setApiKeyInput("");
+    setApiKeyGuardada(Boolean(OPENROUTER_API_KEY));
   };
 
   const puntajeTotal = Object.values(resultados).reduce((s, r) => s + (r.puntaje_total || 0), 0);
@@ -362,6 +438,67 @@ function VistaResidente({ usuario, onLogout }) {
         <div style={{ marginBottom: 28 }}>
           <h2 style={{ fontSize: 22, fontWeight: 700, color: "#0f2744", margin: "0 0 4px" }}>Hola, Lucas 👋</h2>
           <p style={{ color: "#6b7a8d", margin: 0, fontSize: 15 }}>1er año · Rotaciones disponibles para rendir</p>
+        </div>
+        <div style={{
+          background: "#fff", borderRadius: 16, padding: "18px 20px", marginBottom: 20,
+          border: "1px solid #e2e8f0", boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
+        }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#1a2e44", marginBottom: 8 }}>
+            Corrección con IA
+          </div>
+          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
+            <select
+              value={modeloSeleccionado}
+              onChange={(e) => setModeloSeleccionado(e.target.value)}
+              style={{
+                minWidth: 220, border: "1px solid #d8e0ea", borderRadius: 10, padding: "10px 12px",
+                fontSize: 14, color: "#1a2e44", background: "#fff", fontFamily: "inherit",
+              }}
+            >
+              {MODELOS_OPENROUTER.map((modelo) => (
+                <option key={modelo.value} value={modelo.value}>{modelo.label}</option>
+              ))}
+            </select>
+            <div style={{ fontSize: 12, color: "#6b7a8d" }}>
+              Proveedor: OpenRouter
+            </div>
+            <div style={{ fontSize: 12, color: apiKeyGuardada ? "#15803d" : "#b45309" }}>
+              {apiKeyGuardada ? "API key detectada" : "Falta configurar la API key"}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <input
+              type="password"
+              value={apiKeyInput}
+              onChange={(e) => setApiKeyInput(e.target.value)}
+              placeholder="Pegá tu API key de OpenRouter"
+              style={{
+                minWidth: 280, flex: 1, border: "1px solid #d8e0ea", borderRadius: 10, padding: "10px 12px",
+                fontSize: 14, color: "#1a2e44", background: "#fff", fontFamily: "inherit",
+              }}
+            />
+            <button
+              onClick={guardarApiKey}
+              style={{
+                background: "#0f2744", color: "#fff", border: "none", borderRadius: 10,
+                padding: "10px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer",
+              }}
+            >
+              Guardar key
+            </button>
+            <button
+              onClick={borrarApiKey}
+              style={{
+                background: "#fff", color: "#6b7a8d", border: "1px solid #d8e0ea", borderRadius: 10,
+                padding: "10px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer",
+              }}
+            >
+              Borrar
+            </button>
+          </div>
+          <div style={{ fontSize: 12, color: "#6b7a8d", marginTop: 10 }}>
+            La key se guarda localmente en este navegador. Si desplegás en Vercel, también podés usar `VITE_OPENROUTER_API_KEY`.
+          </div>
         </div>
         {[
           { rot: "Pediatría", icon: "👶", estado: "pendiente", fecha: "Vence 20 may" },
@@ -514,10 +651,12 @@ function VistaResidente({ usuario, onLogout }) {
   // ── CORRIGIENDO ────────────────────────────────────────────────────────────
   if (paso === "corrigiendo") return (
     <div style={{ minHeight: "100vh", background: "#0f2744", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'DM Sans', sans-serif" }}>
-      <div style={{ textAlign: "center", color: "#fff" }}>
-        <div style={{ fontSize: 48, marginBottom: 24 }}>🤖</div>
+        <div style={{ textAlign: "center", color: "#fff" }}>
+          <div style={{ fontSize: 48, marginBottom: 24 }}>🤖</div>
         <h2 style={{ fontSize: 22, fontWeight: 700, margin: "0 0 12px" }}>Corrigiendo con IA...</h2>
-        <p style={{ color: "rgba(255,255,255,0.55)", fontSize: 14, margin: 0 }}>Estamos evaluando tus respuestas contra la lista de cotejo</p>
+        <p style={{ color: "rgba(255,255,255,0.55)", fontSize: 14, margin: 0 }}>
+          Estamos evaluando tus respuestas contra la lista de cotejo con {MODELOS_OPENROUTER.find((m) => m.value === modeloSeleccionado)?.label || modeloSeleccionado}
+        </p>
         <div style={{ marginTop: 32, display: "flex", gap: 8, justifyContent: "center" }}>
           {[0,1,2].map(i => (
             <div key={i} style={{
@@ -555,7 +694,7 @@ function VistaResidente({ usuario, onLogout }) {
           </div>
 
           {/* Detalle por pregunta */}
-          {preguntasR1.map((p) => {
+          {casos.map((p) => {
             const res = resultados[p.id];
             if (!res) return null;
             return (
