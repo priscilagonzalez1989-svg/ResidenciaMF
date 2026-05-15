@@ -113,6 +113,17 @@ const MODELOS_OPENROUTER = [
   { value: "google/gemini-2.0-flash-001", label: "Gemini 2.0 Flash" },
 ];
 
+function getModelLabel(modelo) {
+  return MODELOS_OPENROUTER.find((item) => item.value === modelo)?.label || modelo;
+}
+
+function getFallbackModels(modeloPreferido) {
+  return [
+    modeloPreferido,
+    ...MODELOS_OPENROUTER.map((item) => item.value).filter((value) => value !== modeloPreferido),
+  ];
+}
+
 function getOpenRouterApiKey() {
   return (
     window.localStorage.getItem(OPENROUTER_KEY_STORAGE)?.trim() ||
@@ -174,31 +185,44 @@ Respondé ÚNICAMENTE con un JSON válido, sin texto adicional, con esta estruct
   "comentario_general": "feedback breve y constructivo en segunda persona del singular (tuteo argentino)"
 }`;
 
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-      "HTTP-Referer": OPENROUTER_SITE_URL,
-      "X-Title": OPENROUTER_APP_NAME,
-    },
-    body: JSON.stringify({
-      model: modelo,
-      temperature: 0.2,
-      max_tokens: 1200,
-      response_format: { type: "json_object" },
-      messages: [{ role: "user", content: prompt }],
-    }),
-  });
+  let ultimoError = null;
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`OpenRouter devolvió ${response.status}: ${errorText}`);
+  for (const modeloActual of getFallbackModels(modelo)) {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+        "HTTP-Referer": OPENROUTER_SITE_URL,
+        "X-Title": OPENROUTER_APP_NAME,
+      },
+      body: JSON.stringify({
+        model: modeloActual,
+        temperature: 0.2,
+        max_tokens: 1200,
+        response_format: { type: "json_object" },
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      ultimoError = `OpenRouter devolvió ${response.status} con ${getModelLabel(modeloActual)}: ${errorText}`;
+
+      // Si el proveedor está rate-limited, probamos automáticamente con el siguiente modelo.
+      if (response.status === 429) {
+        continue;
+      }
+
+      throw new Error(ultimoError);
+    }
+
+    const data = await response.json();
+    const text = data.choices?.[0]?.message?.content || "";
+    return extraerJson(text);
   }
 
-  const data = await response.json();
-  const text = data.choices?.[0]?.message?.content || "";
-  return extraerJson(text);
+  throw new Error(ultimoError || "No se pudo obtener una corrección válida.");
 }
 
 // ── COMPONENTES UI ───────────────────────────────────────────────────────────
@@ -705,8 +729,8 @@ function VistaResidente({ usuario, onLogout }) {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
                   <div>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-                      <Badge text={p.rotacion} color={DOMINIO_COLOR[p.dominio] || "#6b7a8d"} />
-                      <Badge text={p.dominio} color={DOMINIO_COLOR[p.dominio] || "#6b7a8d"} />
+                      <Badge text={p.rotacion} color="#4a9fd4" />
+                      <Badge text={p.tipo} color="#6b7a8d" />
                     </div>
                     <p style={{ fontSize: 14, color: "#4a5568", margin: 0, lineHeight: 1.5 }}>{p.enunciado.slice(0, 100)}...</p>
                   </div>
