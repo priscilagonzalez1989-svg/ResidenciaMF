@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { supabase } from "./supabase";
 
 // ── ORDEN DE DOMINIOS (flujo de consulta real) ───────────────────────────────
 const ORDEN_DOMINIOS = [
@@ -67,6 +68,27 @@ const USUARIOS = {
   docente: { nombre: "Dra. González", rol: "docente", avatar: "DG" },
 };
 
+const RESIDENTES_POR_EMAIL = {
+  "magdalenafn96@gmail.com": {
+    nombre: "Magdalena Fernández",
+    rol: "residente",
+    año: "R2",
+    avatar: "MF",
+  },
+  "mariacatalinaalricscavarda@gmail.com": {
+    nombre: "Catalina Alric",
+    rol: "residente",
+    año: "R2",
+    avatar: "CA",
+  },
+  "violetacargnelutti@gmail.com": {
+    nombre: "Violeta Cargnelutti",
+    rol: "residente",
+    año: "R2",
+    avatar: "VC",
+  },
+};
+
 // ── DATOS SIMULADOS DASHBOARD ────────────────────────────────────────────────
 const RESIDENTES_DASHBOARD = [
   {
@@ -106,23 +128,8 @@ const OPENROUTER_API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY;
 const OPENROUTER_SITE_URL = import.meta.env.VITE_OPENROUTER_SITE_URL || window.location.origin;
 const OPENROUTER_APP_NAME = import.meta.env.VITE_OPENROUTER_APP_NAME || "ResidenciaMF";
 const OPENROUTER_KEY_STORAGE = "residenciamf_openrouter_api_key";
-const MODELOS_OPENROUTER = [
-  { value: "openai/gpt-4o-mini", label: "GPT-4o Mini" },
-  { value: "openai/gpt-4.1-mini", label: "GPT-4.1 Mini" },
-  { value: "anthropic/claude-3.5-sonnet", label: "Claude 3.5 Sonnet" },
-  { value: "google/gemini-2.0-flash-001", label: "Gemini 2.0 Flash" },
-];
-
-function getModelLabel(modelo) {
-  return MODELOS_OPENROUTER.find((item) => item.value === modelo)?.label || modelo;
-}
-
-function getFallbackModels(modeloPreferido) {
-  return [
-    modeloPreferido,
-    ...MODELOS_OPENROUTER.map((item) => item.value).filter((value) => value !== modeloPreferido),
-  ];
-}
+const OPENROUTER_MODEL = "anthropic/claude-sonnet-4-5";
+const OPENROUTER_MODEL_LABEL = "Claude Sonnet 4.5";
 
 function getOpenRouterApiKey() {
   return (
@@ -143,7 +150,7 @@ function extraerJson(texto) {
 }
 
 // ── LLAMADA A OPENROUTER ─────────────────────────────────────────────────────
-async function corregirConIA(pregunta, respuesta, modelo) {
+async function corregirConIA(pregunta, respuesta) {
   const apiKey = getOpenRouterApiKey();
 
   if (!apiKey) {
@@ -185,44 +192,31 @@ Respondé ÚNICAMENTE con un JSON válido, sin texto adicional, con esta estruct
   "comentario_general": "feedback breve y constructivo en segunda persona del singular (tuteo argentino)"
 }`;
 
-  let ultimoError = null;
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+      "HTTP-Referer": OPENROUTER_SITE_URL,
+      "X-Title": OPENROUTER_APP_NAME,
+    },
+    body: JSON.stringify({
+      model: OPENROUTER_MODEL,
+      temperature: 0.2,
+      max_tokens: 1200,
+      response_format: { type: "json_object" },
+      messages: [{ role: "user", content: prompt }],
+    }),
+  });
 
-  for (const modeloActual of getFallbackModels(modelo)) {
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-        "HTTP-Referer": OPENROUTER_SITE_URL,
-        "X-Title": OPENROUTER_APP_NAME,
-      },
-      body: JSON.stringify({
-        model: modeloActual,
-        temperature: 0.2,
-        max_tokens: 1200,
-        response_format: { type: "json_object" },
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      ultimoError = `OpenRouter devolvió ${response.status} con ${getModelLabel(modeloActual)}: ${errorText}`;
-
-      // Si el proveedor está rate-limited, probamos automáticamente con el siguiente modelo.
-      if (response.status === 429) {
-        continue;
-      }
-
-      throw new Error(ultimoError);
-    }
-
-    const data = await response.json();
-    const text = data.choices?.[0]?.message?.content || "";
-    return extraerJson(text);
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`OpenRouter devolvió ${response.status}: ${errorText}`);
   }
 
-  throw new Error(ultimoError || "No se pudo obtener una corrección válida.");
+  const data = await response.json();
+  const text = data.choices?.[0]?.message?.content || "";
+  return extraerJson(text);
 }
 
 // ── COMPONENTES UI ───────────────────────────────────────────────────────────
@@ -263,7 +257,40 @@ function ProgressBar({ value, max = 100, color = "#2c5f8a", height = 8 }) {
 }
 
 // ── PANTALLA LOGIN ───────────────────────────────────────────────────────────
-function Login({ onLogin }) {
+function Login({ onModoPrueba }) {
+  const [email, setEmail] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const [error, setError] = useState("");
+  const [mensaje, setMensaje] = useState("");
+
+  const enviarLink = async () => {
+    const normalizado = email.trim().toLowerCase();
+    if (!normalizado) {
+      setError("Ingresá un email para recibir el link de acceso.");
+      return;
+    }
+
+    setEnviando(true);
+    setError("");
+    setMensaje("");
+
+    const { error: otpError } = await supabase.auth.signInWithOtp({
+      email: normalizado,
+      options: {
+        emailRedirectTo: window.location.origin,
+      },
+    });
+
+    if (otpError) {
+      setError(otpError.message);
+      setEnviando(false);
+      return;
+    }
+
+    setMensaje(`Te enviamos un link de acceso a ${normalizado}. Revisá tu email para entrar.`);
+    setEnviando(false);
+  };
+
   return (
     <div style={{
       minHeight: "100vh", background: "linear-gradient(135deg, #0f2744 0%, #1e4976 50%, #2c6fad 100%)",
@@ -289,39 +316,61 @@ function Login({ onLogin }) {
             </p>
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <button onClick={() => onLogin("residente")} style={{
-              background: "#4a9fd4", color: "#fff", border: "none",
-              borderRadius: 12, padding: "16px 24px", fontSize: 15, fontWeight: 600,
-              cursor: "pointer", display: "flex", alignItems: "center", gap: 12,
-              transition: "all 0.2s",
-            }}
-              onMouseEnter={e => e.currentTarget.style.background = "#3a8fc4"}
-              onMouseLeave={e => e.currentTarget.style.background = "#4a9fd4"}
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="tuemail@ejemplo.com"
+              style={{
+                width: "100%", borderRadius: 12, border: "1px solid rgba(255,255,255,0.22)",
+                background: "rgba(255,255,255,0.08)", color: "#fff", padding: "14px 16px",
+                fontSize: 15, outline: "none",
+              }}
+            />
+
+            <button
+              onClick={enviarLink}
+              disabled={enviando}
+              style={{
+                background: "#4a9fd4", color: "#fff", border: "none",
+                borderRadius: 12, padding: "16px 24px", fontSize: 15, fontWeight: 600,
+                cursor: enviando ? "wait" : "pointer", transition: "all 0.2s",
+                opacity: enviando ? 0.7 : 1,
+              }}
             >
-              <Avatar initials="LF" size={36} color="rgba(255,255,255,0.2)" />
-              <div style={{ textAlign: "left" }}>
-                <div>Lucas Fernández</div>
-                <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 400 }}>Residente · 1er año</div>
-              </div>
+              {enviando ? "Enviando..." : "Enviar link de acceso"}
             </button>
 
-            <button onClick={() => onLogin("docente")} style={{
-              background: "rgba(255,255,255,0.1)", color: "#fff",
-              border: "1px solid rgba(255,255,255,0.2)",
-              borderRadius: 12, padding: "16px 24px", fontSize: 15, fontWeight: 600,
-              cursor: "pointer", display: "flex", alignItems: "center", gap: 12,
-              transition: "all 0.2s",
-            }}
-              onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.18)"}
-              onMouseLeave={e => e.currentTarget.style.background = "rgba(255,255,255,0.1)"}
+            <button
+              onClick={onModoPrueba}
+              style={{
+                background: "rgba(255,255,255,0.1)", color: "#fff",
+                border: "1px solid rgba(255,255,255,0.2)",
+                borderRadius: 12, padding: "16px 24px", fontSize: 15, fontWeight: 600,
+                cursor: "pointer", transition: "all 0.2s",
+              }}
             >
-              <Avatar initials="DG" size={36} color="rgba(255,255,255,0.15)" />
-              <div style={{ textAlign: "left" }}>
-                <div>Dra. González</div>
-                <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 400 }}>Docente · Coordinadora</div>
-              </div>
+              Modo prueba
             </button>
+
+            {mensaje && (
+              <div style={{
+                background: "rgba(76, 175, 130, 0.15)", border: "1px solid rgba(76, 175, 130, 0.35)",
+                borderRadius: 12, padding: "12px 14px", color: "#d7ffe7", fontSize: 13, lineHeight: 1.5,
+              }}>
+                {mensaje}
+              </div>
+            )}
+
+            {error && (
+              <div style={{
+                background: "rgba(224, 84, 84, 0.16)", border: "1px solid rgba(224, 84, 84, 0.35)",
+                borderRadius: 12, padding: "12px 14px", color: "#ffe1e1", fontSize: 13, lineHeight: 1.5,
+              }}>
+                {error}
+              </div>
+            )}
           </div>
         </div>
         <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 12 }}>Prototipo — Residencia de Medicina Familiar · Córdoba</p>
@@ -337,9 +386,7 @@ function VistaResidente({ usuario, onLogout }) {
   const [consignaIdx, setConsignaIdx] = useState(0);
   const [respuestas, setRespuestas] = useState({}); // { "casoId-dominioKey": texto }
   const [resultados, setResultados] = useState({});
-  const [corrigiendo, setCorrigiendo] = useState(false);
   const [examenActivo, setExamenActivo] = useState(null);
-  const [modeloSeleccionado, setModeloSeleccionado] = useState(MODELOS_OPENROUTER[0].value);
   const [apiKeyInput, setApiKeyInput] = useState(() => getOpenRouterApiKey());
   const [apiKeyGuardada, setApiKeyGuardada] = useState(() => Boolean(getOpenRouterApiKey()));
 
@@ -399,7 +446,6 @@ function VistaResidente({ usuario, onLogout }) {
       if (!getOpenRouterApiKey()) {
         throw new Error("Cargá una API key de OpenRouter antes de corregir.");
       }
-      setCorrigiendo(true);
       const nuevosResultados = {};
       for (const c of casos) {
         // Armar respuesta completa del caso juntando todas las consignas
@@ -409,7 +455,7 @@ function VistaResidente({ usuario, onLogout }) {
           return `[${dom?.label || con.dominio}]\nPregunta: ${con.texto}\nRespuesta: ${respuestas[k] || "(sin respuesta)"}`;
         }).join("\n\n");
 
-        const res = await corregirConIA(c, respuestaCompleta, modeloSeleccionado);
+        const res = await corregirConIA(c, respuestaCompleta);
         nuevosResultados[c.id] = res;
       }
       setResultados(nuevosResultados);
@@ -417,8 +463,6 @@ function VistaResidente({ usuario, onLogout }) {
     } catch (e) {
       alert(`Error al corregir: ${e.message}`);
       setPaso("examen");
-    } finally {
-      setCorrigiendo(false);
     }
   };
 
@@ -471,20 +515,11 @@ function VistaResidente({ usuario, onLogout }) {
             Corrección con IA
           </div>
           <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
-            <select
-              value={modeloSeleccionado}
-              onChange={(e) => setModeloSeleccionado(e.target.value)}
-              style={{
-                minWidth: 220, border: "1px solid #d8e0ea", borderRadius: 10, padding: "10px 12px",
-                fontSize: 14, color: "#1a2e44", background: "#fff", fontFamily: "inherit",
-              }}
-            >
-              {MODELOS_OPENROUTER.map((modelo) => (
-                <option key={modelo.value} value={modelo.value}>{modelo.label}</option>
-              ))}
-            </select>
             <div style={{ fontSize: 12, color: "#6b7a8d" }}>
               Proveedor: OpenRouter
+            </div>
+            <div style={{ fontSize: 12, color: "#6b7a8d" }}>
+              Modelo: {OPENROUTER_MODEL_LABEL}
             </div>
             <div style={{ fontSize: 12, color: apiKeyGuardada ? "#15803d" : "#b45309" }}>
               {apiKeyGuardada ? "API key detectada" : "Falta configurar la API key"}
@@ -679,7 +714,7 @@ function VistaResidente({ usuario, onLogout }) {
           <div style={{ fontSize: 48, marginBottom: 24 }}>🤖</div>
         <h2 style={{ fontSize: 22, fontWeight: 700, margin: "0 0 12px" }}>Corrigiendo con IA...</h2>
         <p style={{ color: "rgba(255,255,255,0.55)", fontSize: 14, margin: 0 }}>
-          Estamos evaluando tus respuestas contra la lista de cotejo con {MODELOS_OPENROUTER.find((m) => m.value === modeloSeleccionado)?.label || modeloSeleccionado}
+          Estamos evaluando tus respuestas contra la lista de cotejo con {OPENROUTER_MODEL_LABEL}
         </p>
         <div style={{ marginTop: 32, display: "flex", gap: 8, justifyContent: "center" }}>
           {[0,1,2].map(i => (
@@ -1012,8 +1047,78 @@ function VistaDocente({ usuario, onLogout }) {
 // ── APP PRINCIPAL ────────────────────────────────────────────────────────────
 export default function App() {
   const [usuario, setUsuario] = useState(null);
+  const [cargandoSesion, setCargandoSesion] = useState(true);
+  const [modoPrueba, setModoPrueba] = useState(false);
 
-  if (!usuario) return <Login onLogin={(rol) => setUsuario(USUARIOS[rol])} />;
-  if (usuario.rol === "residente") return <VistaResidente usuario={usuario} onLogout={() => setUsuario(null)} />;
-  return <VistaDocente usuario={usuario} onLogout={() => setUsuario(null)} />;
+  useEffect(() => {
+    const construirUsuario = (email) => {
+      const normalizado = (email || "").trim().toLowerCase();
+      if (!normalizado) return null;
+
+      if (RESIDENTES_POR_EMAIL[normalizado]) {
+        return { ...RESIDENTES_POR_EMAIL[normalizado], email: normalizado };
+      }
+
+      return {
+        nombre: normalizado,
+        rol: "docente",
+        avatar: "DO",
+        email: normalizado,
+      };
+    };
+
+    const hidratarSesion = async () => {
+      const { data } = await supabase.auth.getSession();
+      const email = data.session?.user?.email || "";
+      setUsuario(construirUsuario(email));
+      setCargandoSesion(false);
+    };
+
+    hidratarSesion();
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (modoPrueba) return;
+      const email = session?.user?.email || "";
+      setUsuario(construirUsuario(email));
+      setCargandoSesion(false);
+    });
+
+    return () => listener.subscription.unsubscribe();
+  }, [modoPrueba]);
+
+  const entrarModoPrueba = () => {
+    setModoPrueba(true);
+    setUsuario(USUARIOS.residente);
+    setCargandoSesion(false);
+  };
+
+  const cerrarSesion = async () => {
+    if (modoPrueba) {
+      setModoPrueba(false);
+      setUsuario(null);
+      return;
+    }
+
+    await supabase.auth.signOut();
+    setUsuario(null);
+  };
+
+  if (cargandoSesion) {
+    return (
+      <div style={{
+        minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
+        background: "linear-gradient(135deg, #0f2744 0%, #1e4976 50%, #2c6fad 100%)", color: "#fff",
+        fontFamily: "'DM Sans', 'Segoe UI', sans-serif",
+      }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>🩺</div>
+          <div style={{ fontSize: 16, fontWeight: 600 }}>Cargando sesión...</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!usuario) return <Login onModoPrueba={entrarModoPrueba} />;
+  if (usuario.rol === "residente") return <VistaResidente usuario={usuario} onLogout={cerrarSesion} />;
+  return <VistaDocente usuario={usuario} onLogout={cerrarSesion} />;
 }
