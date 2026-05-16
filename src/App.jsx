@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
+import AdminBancoPreguntas from "./admin/AdminBancoPreguntas";
+import AdminLayout from "./admin/AdminLayout";
+import AdminPlaceholder from "./admin/AdminPlaceholder";
 
 // ── ORDEN DE DOMINIOS (flujo de consulta real) ───────────────────────────────
 const ORDEN_DOMINIOS = [
@@ -130,6 +133,19 @@ const OPENROUTER_APP_NAME = import.meta.env.VITE_OPENROUTER_APP_NAME || "Residen
 const OPENROUTER_KEY_STORAGE = "residenciamf_openrouter_api_key";
 const OPENROUTER_MODEL = "anthropic/claude-sonnet-4-5";
 const OPENROUTER_MODEL_LABEL = "Claude Sonnet 4.5";
+
+function getCurrentPathname() {
+  return window.location.pathname || "/";
+}
+
+function isAdminPath(pathname) {
+  return pathname === "/admin" || pathname.startsWith("/admin/");
+}
+
+function normalizeAdminPath(pathname) {
+  if (pathname === "/admin") return "/admin/banco-preguntas";
+  return pathname;
+}
 
 function getOpenRouterApiKey() {
   return (
@@ -1049,11 +1065,23 @@ export default function App() {
   const [usuario, setUsuario] = useState(null);
   const [cargandoSesion, setCargandoSesion] = useState(true);
   const [modoPrueba, setModoPrueba] = useState(false);
+  const [pathname, setPathname] = useState(() =>
+    normalizeAdminPath(getCurrentPathname())
+  );
 
   useEffect(() => {
-    const construirUsuario = (email) => {
-      const normalizado = (email || "").trim().toLowerCase();
+    const construirUsuario = (supabaseUser) => {
+      const normalizado = (supabaseUser?.email || "").trim().toLowerCase();
       if (!normalizado) return null;
+
+      if (supabaseUser?.app_metadata?.role === "admin") {
+        return {
+          nombre: normalizado,
+          rol: "admin",
+          avatar: "AD",
+          email: normalizado,
+        };
+      }
 
       if (RESIDENTES_POR_EMAIL[normalizado]) {
         return { ...RESIDENTES_POR_EMAIL[normalizado], email: normalizado };
@@ -1069,8 +1097,8 @@ export default function App() {
 
     const hidratarSesion = async () => {
       const { data } = await supabase.auth.getSession();
-      const email = data.session?.user?.email || "";
-      setUsuario(construirUsuario(email));
+      const supabaseUser = data.session?.user || null;
+      setUsuario(construirUsuario(supabaseUser));
       setCargandoSesion(false);
     };
 
@@ -1078,18 +1106,63 @@ export default function App() {
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (modoPrueba) return;
-      const email = session?.user?.email || "";
-      setUsuario(construirUsuario(email));
+      const supabaseUser = session?.user || null;
+      setUsuario(construirUsuario(supabaseUser));
       setCargandoSesion(false);
     });
 
     return () => listener.subscription.unsubscribe();
   }, [modoPrueba]);
 
+  useEffect(() => {
+    const syncPathname = () => setPathname(normalizeAdminPath(getCurrentPathname()));
+    window.addEventListener("popstate", syncPathname);
+    return () => window.removeEventListener("popstate", syncPathname);
+  }, []);
+
+  useEffect(() => {
+    if (getCurrentPathname() === pathname) return;
+    window.history.replaceState({}, "", pathname);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (cargandoSesion) return;
+
+    if (!usuario) {
+      if (isAdminPath(pathname)) {
+        setPathname("/login");
+      }
+      return;
+    }
+
+    if (usuario.rol === "admin") {
+      if (pathname === "/" || pathname === "/login") {
+        setPathname("/admin/banco-preguntas");
+      }
+      return;
+    }
+
+    if (isAdminPath(pathname)) {
+      setPathname("/login");
+      return;
+    }
+
+    if (pathname === "/login") {
+      setPathname("/");
+    }
+  }, [cargandoSesion, pathname, usuario]);
+
+  const navigate = (nextPath) => {
+    const normalized = normalizeAdminPath(nextPath);
+    window.history.pushState({}, "", normalized);
+    setPathname(normalized);
+  };
+
   const entrarModoPrueba = () => {
     setModoPrueba(true);
     setUsuario(USUARIOS.residente);
     setCargandoSesion(false);
+    navigate("/");
   };
 
   const cerrarSesion = async () => {
@@ -1101,6 +1174,44 @@ export default function App() {
 
     await supabase.auth.signOut();
     setUsuario(null);
+    navigate("/login");
+  };
+
+  const renderAdminSection = () => {
+    const adminPath = normalizeAdminPath(pathname);
+
+    let content = null;
+
+    if (adminPath === "/admin/banco-preguntas") {
+      content = <AdminBancoPreguntas />;
+    } else if (adminPath === "/admin/examenes") {
+      content = (
+        <AdminPlaceholder
+          title="Exámenes"
+          description="Espacio preparado para la administración futura de exámenes y convocatorias."
+        />
+      );
+    } else if (adminPath === "/admin/residentes") {
+      content = (
+        <AdminPlaceholder
+          title="Residentes"
+          description="Espacio preparado para la gestión futura de residentes, cohortes y permisos."
+        />
+      );
+    } else {
+      content = <AdminBancoPreguntas />;
+    }
+
+    return (
+      <AdminLayout
+        pathname={adminPath}
+        onNavigate={navigate}
+        onLogout={cerrarSesion}
+        userEmail={usuario?.email}
+      >
+        {content}
+      </AdminLayout>
+    );
   };
 
   if (cargandoSesion) {
@@ -1119,6 +1230,7 @@ export default function App() {
   }
 
   if (!usuario) return <Login onModoPrueba={entrarModoPrueba} />;
+  if (usuario.rol === "admin" && isAdminPath(pathname)) return renderAdminSection();
   if (usuario.rol === "residente") return <VistaResidente usuario={usuario} onLogout={cerrarSesion} />;
   return <VistaDocente usuario={usuario} onLogout={cerrarSesion} />;
 }
