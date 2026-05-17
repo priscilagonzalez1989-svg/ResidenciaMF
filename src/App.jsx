@@ -3,6 +3,7 @@ import { supabase } from "./supabase";
 import AdminBancoPreguntas from "./admin/AdminBancoPreguntas";
 import AdminLayout from "./admin/AdminLayout";
 import AdminPlaceholder from "./admin/AdminPlaceholder";
+import ResidentesBoard from "./admin/ResidentesBoard";
 
 // ── ORDEN DE DOMINIOS (flujo de consulta real) ───────────────────────────────
 const ORDEN_DOMINIOS = [
@@ -67,29 +68,7 @@ const BANCO = [
 
 // ── USUARIOS DEMO ───────────────────────────────────────────────────────────
 const USUARIOS = {
-  residente: { nombre: "Lucas Fernández", rol: "residente", año: "R1", avatar: "LF" },
-  docente: { nombre: "Dra. González", rol: "docente", avatar: "DG" },
-};
-
-const RESIDENTES_POR_EMAIL = {
-  "magdalenafn96@gmail.com": {
-    nombre: "Magdalena Fernández",
-    rol: "residente",
-    año: "R2",
-    avatar: "MF",
-  },
-  "mariacatalinaalricscavarda@gmail.com": {
-    nombre: "Catalina Alric",
-    rol: "residente",
-    año: "R2",
-    avatar: "CA",
-  },
-  "violetacargnelutti@gmail.com": {
-    nombre: "Violeta Cargnelutti",
-    rol: "residente",
-    año: "R2",
-    avatar: "VC",
-  },
+  modoPrueba: { nombre: "Modo prueba", rol: "residente", avatar: "MP", email: "modo-prueba@local" },
 };
 
 // ── COLORES POR DOMINIO ──────────────────────────────────────────────────────
@@ -120,9 +99,42 @@ function isAdminPath(pathname) {
   return pathname === "/admin" || pathname.startsWith("/admin/");
 }
 
-function normalizeAdminPath(pathname) {
+function isDocentePath(pathname) {
+  return pathname === "/docente" || pathname.startsWith("/docente/");
+}
+
+function isResidentPath(pathname) {
+  return pathname === "/mis-examenes";
+}
+
+function normalizePathname(pathname) {
   if (pathname === "/admin") return "/admin/banco-preguntas";
+  if (pathname === "/docente") return "/docente/dashboard";
   return pathname;
+}
+
+const ADMIN_NAV_ITEMS = [
+  { path: "/admin/banco-preguntas", label: "Banco de preguntas", icon: "📚" },
+  { path: "/admin/examenes", label: "Exámenes", icon: "📝" },
+  { path: "/admin/residentes", label: "Residentes", icon: "👥" },
+];
+
+const DOCENTE_NAV_ITEMS = [
+  { path: "/docente/dashboard", label: "Dashboard", icon: "📊" },
+  { path: "/docente/residentes", label: "Residentes", icon: "👥" },
+];
+
+function initialsFromName(value) {
+  const parts = String(value || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (parts.length === 0) return "US";
+  return parts
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() || "")
+    .join("");
 }
 
 function getOpenRouterApiKey() {
@@ -291,6 +303,67 @@ function EmptyPanelState({ icon = "📭", title, description }) {
   );
 }
 
+function PendingAuthorization({ onLogout }) {
+  return (
+    <div style={{
+      minHeight: "100vh",
+      background: "linear-gradient(135deg, #0f2744 0%, #1e4976 50%, #2c6fad 100%)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 24,
+      fontFamily: "'DM Sans', 'Segoe UI', sans-serif",
+    }}>
+      <div style={{
+        width: "100%",
+        maxWidth: 560,
+        background: "rgba(255,255,255,0.08)",
+        backdropFilter: "blur(12px)",
+        border: "1px solid rgba(255,255,255,0.15)",
+        borderRadius: 24,
+        padding: "44px 40px",
+        textAlign: "center",
+        color: "#fff",
+      }}>
+        <div style={{
+          width: 72,
+          height: 72,
+          borderRadius: 20,
+          background: "linear-gradient(135deg, #4a9fd4, #2c6fad)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 34,
+          margin: "0 auto 22px",
+        }}>
+          ⏳
+        </div>
+        <h1 style={{ margin: 0, fontSize: 28, fontWeight: 800 }}>
+          Tu cuenta está pendiente de autorización.
+        </h1>
+        <p style={{ margin: "14px 0 24px", fontSize: 15, lineHeight: 1.7, color: "rgba(255,255,255,0.75)" }}>
+          Comunicate con la coordinación del programa para obtener acceso.
+        </p>
+        <button
+          onClick={onLogout}
+          style={{
+            border: "none",
+            borderRadius: 12,
+            padding: "14px 22px",
+            background: "#fff",
+            color: "#0f2744",
+            fontSize: 15,
+            fontWeight: 700,
+            cursor: "pointer",
+          }}
+        >
+          Cerrar sesión
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── PANTALLA LOGIN ───────────────────────────────────────────────────────────
 function Login({ onModoPrueba }) {
   const [email, setEmail] = useState("");
@@ -416,113 +489,7 @@ function Login({ onModoPrueba }) {
 
 // ── VISTA RESIDENTE ──────────────────────────────────────────────────────────
 function VistaResidente({ usuario, onLogout }) {
-  const [paso, setPaso] = useState("lista");
-  const [casoIdx, setCasoIdx] = useState(0);
-  const [consignaIdx, setConsignaIdx] = useState(0);
-  const [respuestas, setRespuestas] = useState({}); // { "casoId-dominioKey": texto }
-  const [resultados, setResultados] = useState({});
-  const [examenActivo, setExamenActivo] = useState(null);
-  const [apiKeyInput, setApiKeyInput] = useState(() => getOpenRouterApiKey());
-  const [apiKeyGuardada, setApiKeyGuardada] = useState(() => Boolean(getOpenRouterApiKey()));
-
-  useEffect(() => {
-    setApiKeyGuardada(Boolean(getOpenRouterApiKey()));
-  }, []);
-
-  const casos = BANCO.filter(p => p.ano === "R1");
-  const caso = casos[casoIdx];
-  const consignaActual = caso?.consignas[consignaIdx];
-  const dominioInfo = ORDEN_DOMINIOS.find(d => d.key === consignaActual?.dominio) || ORDEN_DOMINIOS[0];
-  const respKey = caso ? `${caso.id}-${consignaActual?.dominio}` : "";
-
-  // Total de pasos = suma de consignas de todos los casos
-  const totalConsignas = casos.reduce((s, c) => s + c.consignas.length, 0);
-  const consignasHechas = casos.slice(0, casoIdx).reduce((s, c) => s + c.consignas.length, 0) + consignaIdx;
-
-  const iniciarExamen = (rotacion) => {
-    setExamenActivo(rotacion);
-    setPaso("examen");
-    setCasoIdx(0);
-    setConsignaIdx(0);
-    setRespuestas({});
-    setResultados({});
-  };
-
-  const avanzar = () => {
-    // ¿Hay más consignas en este caso?
-    if (consignaIdx < caso.consignas.length - 1) {
-      setConsignaIdx(consignaIdx + 1);
-    // ¿Hay más casos?
-    } else if (casoIdx < casos.length - 1) {
-      setCasoIdx(casoIdx + 1);
-      setConsignaIdx(0);
-    } else {
-      // Fin del examen → corregir
-      handleEnviar();
-    }
-  };
-
-  const retroceder = () => {
-    if (consignaIdx > 0) {
-      setConsignaIdx(consignaIdx - 1);
-    } else if (casoIdx > 0) {
-      const casoPrev = casos[casoIdx - 1];
-      setCasoIdx(casoIdx - 1);
-      setConsignaIdx(casoPrev.consignas.length - 1);
-    }
-  };
-
-  const esPrimero = casoIdx === 0 && consignaIdx === 0;
-  const esUltimo = casoIdx === casos.length - 1 && consignaIdx === (caso?.consignas.length - 1);
-
-  const handleEnviar = async () => {
-    setPaso("corrigiendo");
-    try {
-      if (!getOpenRouterApiKey()) {
-        throw new Error("Cargá una API key de OpenRouter antes de corregir.");
-      }
-      const nuevosResultados = {};
-      for (const c of casos) {
-        // Armar respuesta completa del caso juntando todas las consignas
-        const respuestaCompleta = c.consignas.map(con => {
-          const k = `${c.id}-${con.dominio}`;
-          const dom = ORDEN_DOMINIOS.find(d => d.key === con.dominio);
-          return `[${dom?.label || con.dominio}]\nPregunta: ${con.texto}\nRespuesta: ${respuestas[k] || "(sin respuesta)"}`;
-        }).join("\n\n");
-
-        const res = await corregirConIA(c, respuestaCompleta);
-        nuevosResultados[c.id] = res;
-      }
-      setResultados(nuevosResultados);
-      setPaso("resultado");
-    } catch (e) {
-      alert(`Error al corregir: ${e.message}`);
-      setPaso("examen");
-    }
-  };
-
-  const guardarApiKey = () => {
-    const limpia = apiKeyInput.trim();
-    if (!limpia) {
-      window.localStorage.removeItem(OPENROUTER_KEY_STORAGE);
-      setApiKeyGuardada(Boolean(OPENROUTER_API_KEY));
-      return;
-    }
-    window.localStorage.setItem(OPENROUTER_KEY_STORAGE, limpia);
-    setApiKeyGuardada(true);
-  };
-
-  const borrarApiKey = () => {
-    window.localStorage.removeItem(OPENROUTER_KEY_STORAGE);
-    setApiKeyInput("");
-    setApiKeyGuardada(Boolean(OPENROUTER_API_KEY));
-  };
-
-  const puntajeTotal = Object.values(resultados).reduce((s, r) => s + (r.puntaje_total || 0), 0);
-  const puntajeMax = casos.reduce((s, p) => s + p.puntaje_total, 0);
-
-  // ── LISTA DE EXÁMENES ──────────────────────────────────────────────────────
-  if (paso === "lista") return (
+  return (
     <div style={{ minHeight: "100vh", background: "#f4f6f9", fontFamily: "'DM Sans', 'Segoe UI', sans-serif" }}>
       <div style={{ background: "#0f2744", color: "#fff", padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -537,329 +504,19 @@ function VistaResidente({ usuario, onLogout }) {
           <button onClick={onLogout} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: 13 }}>Salir</button>
         </div>
       </div>
-      <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 24px" }}>
-        <div style={{ marginBottom: 28 }}>
-          <h2 style={{ fontSize: 22, fontWeight: 700, color: "#0f2744", margin: "0 0 4px" }}>Hola, Lucas 👋</h2>
-          <p style={{ color: "#6b7a8d", margin: 0, fontSize: 15 }}>1er año · Rotaciones disponibles para rendir</p>
-        </div>
-        <div style={{
-          background: "#fff", borderRadius: 16, padding: "18px 20px", marginBottom: 20,
-          border: "1px solid #e2e8f0", boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
-        }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "#1a2e44", marginBottom: 8 }}>
-            Corrección con IA
-          </div>
-          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
-            <div style={{ fontSize: 12, color: "#6b7a8d" }}>
-              Proveedor: OpenRouter
-            </div>
-            <div style={{ fontSize: 12, color: "#6b7a8d" }}>
-              Modelo: {OPENROUTER_MODEL_LABEL}
-            </div>
-            <div style={{ fontSize: 12, color: apiKeyGuardada ? "#15803d" : "#b45309" }}>
-              {apiKeyGuardada ? "API key detectada" : "Falta configurar la API key"}
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            <input
-              type="password"
-              value={apiKeyInput}
-              onChange={(e) => setApiKeyInput(e.target.value)}
-              placeholder="Pegá tu API key de OpenRouter"
-              style={{
-                minWidth: 280, flex: 1, border: "1px solid #d8e0ea", borderRadius: 10, padding: "10px 12px",
-                fontSize: 14, color: "#1a2e44", background: "#fff", fontFamily: "inherit",
-              }}
-            />
-            <button
-              onClick={guardarApiKey}
-              style={{
-                background: "#0f2744", color: "#fff", border: "none", borderRadius: 10,
-                padding: "10px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer",
-              }}
-            >
-              Guardar key
-            </button>
-            <button
-              onClick={borrarApiKey}
-              style={{
-                background: "#fff", color: "#6b7a8d", border: "1px solid #d8e0ea", borderRadius: 10,
-                padding: "10px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer",
-              }}
-            >
-              Borrar
-            </button>
-          </div>
-          <div style={{ fontSize: 12, color: "#6b7a8d", marginTop: 10 }}>
-            La key se guarda localmente en este navegador. Si desplegás en Vercel, también podés usar `VITE_OPENROUTER_API_KEY`.
-          </div>
-        </div>
-        {[
-          { rot: "Pediatría", icon: "👶", estado: "pendiente", fecha: "Vence 20 may" },
-          { rot: "Medicina Familiar", icon: "🏥", estado: "pendiente", fecha: "Vence 28 may" },
-          { rot: "Traumatología", icon: "🦴", estado: "completado", fecha: "Rendido el 5 may", puntaje: "16/20" },
-        ].map(ex => (
-          <div key={ex.rot} style={{
-            background: "#fff", borderRadius: 16, padding: "20px 24px", marginBottom: 12,
-            border: "1px solid #e2e8f0", display: "flex", alignItems: "center",
-            justifyContent: "space-between", boxShadow: "0 1px 4px rgba(0,0,0,0.05)",
-          }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-              <div style={{ width: 48, height: 48, background: ex.estado === "completado" ? "#f0faf5" : "#f0f6ff", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>{ex.icon}</div>
-              <div>
-                <div style={{ fontWeight: 600, color: "#1a2e44", fontSize: 16 }}>{ex.rot}</div>
-                <div style={{ fontSize: 13, color: "#9aa5b4", marginTop: 2 }}>{ex.fecha}</div>
-              </div>
-            </div>
-            {ex.estado === "completado"
-              ? <div style={{ textAlign: "right" }}><Badge text="Completado" color="#4caf82" /><div style={{ fontSize: 13, color: "#4caf82", fontWeight: 700, marginTop: 6 }}>{ex.puntaje}</div></div>
-              : <button onClick={() => iniciarExamen(ex.rot)} style={{ background: "#4a9fd4", color: "#fff", border: "none", borderRadius: 10, padding: "10px 20px", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>Rendir →</button>
-            }
-          </div>
-        ))}
+
+      <div style={{ maxWidth: 760, margin: "0 auto", padding: "36px 24px" }}>
+        <EmptyPanelState
+          icon="📝"
+          title="Próximamente — exámenes en preparación"
+          description="Esta sección se conectará con tus exámenes pendientes reales. Por ahora dejamos preparada la ruta /mis-examenes sin mostrar datos de otros residentes."
+        />
       </div>
     </div>
   );
-
-  // ── EXAMEN (consigna por consigna) ─────────────────────────────────────────
-  if (paso === "examen") return (
-    <div style={{ minHeight: "100vh", background: "#f4f6f9", fontFamily: "'DM Sans', 'Segoe UI', sans-serif" }}>
-
-      {/* Header */}
-      <div style={{ background: "#0f2744", color: "#fff", padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div>
-          <div style={{ fontWeight: 700, fontSize: 15 }}>🩺 ResidenciaMF · {examenActivo}</div>
-          <div style={{ fontSize: 11, opacity: 0.55, marginTop: 2 }}>Caso {casoIdx + 1} de {casos.length}</div>
-        </div>
-        <Avatar initials={usuario.avatar} size={32} color="#4a9fd4" />
-      </div>
-
-      {/* Barra progreso general */}
-      <div style={{ background: "#1e4976", height: 3 }}>
-        <div style={{ height: "100%", background: "#4a9fd4", width: `${(consignasHechas / totalConsignas) * 100}%`, transition: "width 0.3s ease" }} />
-      </div>
-
-      <div style={{ maxWidth: 720, margin: "0 auto", padding: "24px 24px" }}>
-
-        {/* Indicador de dominio actual */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 18, overflowX: "auto", paddingBottom: 4 }}>
-          {ORDEN_DOMINIOS.map((d, i) => {
-            const esCurrent = d.key === consignaActual?.dominio;
-            const esHecho = caso.consignas.findIndex(c => c.dominio === d.key) < consignaIdx;
-            return (
-              <div key={d.key} style={{
-                display: "flex", alignItems: "center", gap: 6,
-                background: esCurrent ? d.color + "22" : "transparent",
-                border: `1.5px solid ${esCurrent ? d.color : "#e2e8f0"}`,
-                borderRadius: 20, padding: "5px 12px", flexShrink: 0,
-                transition: "all 0.2s",
-              }}>
-                <span style={{ fontSize: 13 }}>{esHecho ? "✓" : d.icon}</span>
-                <span style={{ fontSize: 11, fontWeight: esCurrent ? 700 : 400, color: esCurrent ? d.color : "#9aa5b4" }}>{d.label}</span>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Caso clínico — siempre visible */}
-        <div style={{ background: "#fff", borderRadius: 14, padding: "20px 24px", marginBottom: 16, border: "1px solid #e2e8f0", boxShadow: "0 1px 6px rgba(0,0,0,0.05)" }}>
-          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-            <Badge text={caso.rotacion} color="#4a9fd4" />
-            <Badge text={`Caso ${casoIdx + 1}`} color="#6b7a8d" />
-          </div>
-          <div style={{ background: "#f0f6ff", border: "1px solid #c8dff5", borderRadius: 8, padding: "10px 14px", marginBottom: 12, fontSize: 11.5, color: "#2c5f8a", fontWeight: 500 }}>📋 Caso clínico</div>
-          <p style={{ color: "#2d3748", lineHeight: 1.7, margin: 0, fontSize: 14.5 }}>{caso.enunciado}</p>
-        </div>
-
-        {/* Consigna actual */}
-        <div style={{ background: dominioInfo.color + "14", border: `1.5px solid ${dominioInfo.color}40`, borderRadius: 14, padding: "20px 24px", marginBottom: 16 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-            <span style={{ fontSize: 18 }}>{dominioInfo.icon}</span>
-            <span style={{ fontSize: 12, fontWeight: 700, color: dominioInfo.color, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-              {dominioInfo.label}
-            </span>
-            <span style={{ fontSize: 11, color: "#9aa5b4", marginLeft: "auto" }}>
-              {consignaIdx + 1} / {caso.consignas.length}
-            </span>
-          </div>
-          <p style={{ color: "#1a2e44", fontSize: 15, lineHeight: 1.65, margin: 0, fontWeight: 500 }}>
-            {consignaActual?.texto}
-          </p>
-        </div>
-
-        {/* Respuesta */}
-        <div style={{ background: "#fff", borderRadius: 14, padding: "20px 24px", marginBottom: 20, border: "1px solid #e2e8f0" }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: "#9aa5b4", display: "block", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-            Tu respuesta
-          </label>
-          <textarea
-            value={respuestas[respKey] || ""}
-            onChange={e => setRespuestas({ ...respuestas, [respKey]: e.target.value })}
-            placeholder={`Respondé sobre ${dominioInfo.label.toLowerCase()}...`}
-            rows={6}
-            style={{
-              width: "100%", border: "1px solid #e2e8f0", borderRadius: 10,
-              padding: "14px 16px", fontSize: 15, lineHeight: 1.6,
-              resize: "vertical", outline: "none", color: "#2d3748",
-              fontFamily: "inherit", boxSizing: "border-box", transition: "border-color 0.2s",
-            }}
-            onFocus={e => e.target.style.borderColor = dominioInfo.color}
-            onBlur={e => e.target.style.borderColor = "#e2e8f0"}
-            autoFocus
-          />
-        </div>
-
-        {/* Navegación */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <button
-            onClick={retroceder}
-            disabled={esPrimero}
-            style={{
-              background: "none", border: "1px solid #e2e8f0", borderRadius: 10,
-              padding: "12px 20px", fontSize: 14, fontFamily: "inherit",
-              cursor: esPrimero ? "not-allowed" : "pointer",
-              color: esPrimero ? "#c8d0da" : "#4a5568",
-            }}
-          >← Anterior</button>
-
-          <div style={{ fontSize: 12, color: "#9aa5b4" }}>
-            {consignasHechas + 1} / {totalConsignas} pasos
-          </div>
-
-          <button
-            onClick={avanzar}
-            style={{
-              background: esUltimo ? "#2ecc71" : dominioInfo.color,
-              color: "#fff", border: "none", borderRadius: 10,
-              padding: "12px 24px", fontSize: 14, fontWeight: 600,
-              cursor: "pointer", fontFamily: "inherit",
-            }}
-          >
-            {esUltimo ? "Enviar examen ✓" : "Siguiente →"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-
-  // ── CORRIGIENDO ────────────────────────────────────────────────────────────
-  if (paso === "corrigiendo") return (
-    <div style={{ minHeight: "100vh", background: "#0f2744", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'DM Sans', sans-serif" }}>
-        <div style={{ textAlign: "center", color: "#fff" }}>
-          <div style={{ fontSize: 48, marginBottom: 24 }}>🤖</div>
-        <h2 style={{ fontSize: 22, fontWeight: 700, margin: "0 0 12px" }}>Corrigiendo con IA...</h2>
-        <p style={{ color: "rgba(255,255,255,0.55)", fontSize: 14, margin: 0 }}>
-          Estamos evaluando tus respuestas contra la lista de cotejo con {OPENROUTER_MODEL_LABEL}
-        </p>
-        <div style={{ marginTop: 32, display: "flex", gap: 8, justifyContent: "center" }}>
-          {[0,1,2].map(i => (
-            <div key={i} style={{
-              width: 10, height: 10, borderRadius: "50%", background: "#4a9fd4",
-              animation: `pulse 1.2s ease-in-out ${i * 0.2}s infinite`,
-            }} />
-          ))}
-        </div>
-        <style>{`@keyframes pulse { 0%,100%{opacity:0.3;transform:scale(0.8)} 50%{opacity:1;transform:scale(1.2)} }`}</style>
-      </div>
-    </div>
-  );
-
-  // ── RESULTADO ──
-  if (paso === "resultado") {
-    const pct = Math.round((puntajeTotal / puntajeMax) * 100);
-    const aprobado = pct >= 60;
-    return (
-      <div style={{ minHeight: "100vh", background: "#f4f6f9", fontFamily: "'DM Sans', 'Segoe UI', sans-serif" }}>
-        <div style={{ background: "#0f2744", color: "#fff", padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ fontWeight: 700, fontSize: 16 }}>🩺 ResidenciaMF · Resultado</div>
-          <button onClick={() => setPaso("lista")} style={{ background: "none", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", borderRadius: 8, padding: "6px 14px", cursor: "pointer", fontSize: 13 }}>
-            Volver
-          </button>
-        </div>
-
-        <div style={{ maxWidth: 720, margin: "0 auto", padding: "28px 24px" }}>
-          {/* Puntaje global */}
-          <div style={{
-            background: aprobado ? "linear-gradient(135deg, #1a6b4a, #2ecc71)" : "linear-gradient(135deg, #7a1f1f, #e05454)",
-            borderRadius: 20, padding: "32px", marginBottom: 24, color: "#fff", textAlign: "center",
-          }}>
-            <div style={{ fontSize: 52, fontWeight: 800, lineHeight: 1 }}>{puntajeTotal}/{puntajeMax}</div>
-            <div style={{ fontSize: 18, opacity: 0.9, marginTop: 4 }}>{pct}% · {aprobado ? "✅ Aprobado" : "❌ Necesita refuerzo"}</div>
-          </div>
-
-          {/* Detalle por pregunta */}
-          {casos.map((p) => {
-            const res = resultados[p.id];
-            if (!res) return null;
-            return (
-              <div key={p.id} style={{
-                background: "#fff", borderRadius: 16, padding: "24px 28px",
-                marginBottom: 16, border: "1px solid #e2e8f0",
-              }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
-                  <div>
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-                      <Badge text={p.rotacion} color="#4a9fd4" />
-                      <Badge text={p.tipo} color="#6b7a8d" />
-                    </div>
-                    <p style={{ fontSize: 14, color: "#4a5568", margin: 0, lineHeight: 1.5 }}>{p.enunciado.slice(0, 100)}...</p>
-                  </div>
-                  <div style={{ textAlign: "right", flexShrink: 0, marginLeft: 16 }}>
-                    <div style={{ fontSize: 24, fontWeight: 800, color: res.porcentaje >= 60 ? "#2ecc71" : "#e05454" }}>
-                      {res.puntaje_total}/{res.puntaje_maximo}
-                    </div>
-                    <div style={{ fontSize: 12, color: "#9aa5b4" }}>{res.porcentaje}%</div>
-                  </div>
-                </div>
-
-                {/* Items de cotejo */}
-                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
-                  {res.items?.map((item, i) => {
-                    const icon = item.estado === "completo" ? "✅" : item.estado === "parcial" ? "⚠️" : "❌";
-                    const color = item.estado === "completo" ? "#e8f9f0" : item.estado === "parcial" ? "#fff8e8" : "#fef0f0";
-                    const borderColor = item.estado === "completo" ? "#b8e8d0" : item.estado === "parcial" ? "#f0d8a0" : "#f0b8b8";
-                    return (
-                      <div key={i} style={{ background: color, border: `1px solid ${borderColor}`, borderRadius: 10, padding: "12px 14px" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                          <div style={{ fontSize: 13, color: "#2d3748", flex: 1 }}>
-                            {icon} <strong>Ítem {i + 1}</strong> — {item.descripcion || item.item}
-                          </div>
-                          <span style={{ fontSize: 13, fontWeight: 700, color: "#2d3748", marginLeft: 12, flexShrink: 0 }}>
-                            {item.puntaje_obtenido}/{item.puntaje_maximo} pts
-                          </span>
-                        </div>
-                        <div style={{ fontSize: 12, color: "#6b7a8d", marginTop: 6, paddingLeft: 2 }}>
-                          {item.fundamento}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Comentario IA */}
-                {res.comentario_general && (
-                  <div style={{ background: "#f0f6ff", borderRadius: 10, padding: "12px 16px", fontSize: 13, color: "#2c5f8a", borderLeft: "3px solid #4a9fd4" }}>
-                    💬 {res.comentario_general}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-
-          <button onClick={() => setPaso("lista")} style={{
-            background: "#0f2744", color: "#fff", border: "none",
-            borderRadius: 12, padding: "14px 28px", fontSize: 15,
-            fontWeight: 600, cursor: "pointer", width: "100%", marginTop: 8,
-          }}>Volver a mis exámenes</button>
-        </div>
-      </div>
-    );
-  }
 }
 
-// ── VISTA DOCENTE ────────────────────────────────────────────────────────────
-function VistaDocente({ usuario, onLogout }) {
-  const [tab, setTab] = useState("dashboard");
+function DocenteDashboard() {
   const [dashboard, setDashboard] = useState({
     loading: true,
     error: "",
@@ -930,128 +587,76 @@ function VistaDocente({ usuario, onLogout }) {
   }, []);
 
   return (
-    <div style={{ minHeight: "100vh", background: "#f4f6f9", fontFamily: "'DM Sans', 'Segoe UI', sans-serif" }}>
-      {/* Header */}
-      <div style={{ background: "#0f2744", color: "#fff", padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ fontSize: 20 }}>🩺</span>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 16 }}>ResidenciaMF</div>
-            <div style={{ fontSize: 12, opacity: 0.6 }}>Panel docente</div>
-          </div>
+    <div style={{ display: "grid", gap: 20, padding: 28 }}>
+      {dashboard.error && (
+        <div style={{
+          background: "#fff3f3", border: "1px solid #f0b8b8", borderRadius: 16,
+          padding: "16px 20px", color: "#8f2d2d",
+        }}>
+          No se pudo cargar el resumen docente: {dashboard.error}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <Avatar initials={usuario.avatar} size={34} color="#e07b54" />
-          <button onClick={onLogout} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: 13 }}>Salir</button>
-        </div>
-      </div>
+      )}
 
-      {/* Tabs */}
-      <div style={{ background: "#fff", borderBottom: "1px solid #e2e8f0", padding: "0 24px", display: "flex", gap: 0 }}>
-        {[["dashboard", "📊 Dashboard"], ["residentes", "👥 Residentes"], ["banco", "📋 Banco de preguntas"]].map(([key, label]) => (
-          <button key={key} onClick={() => setTab(key)} style={{
-            background: "none", border: "none", borderBottom: tab === key ? "2px solid #4a9fd4" : "2px solid transparent",
-            padding: "14px 20px", fontSize: 14, fontWeight: tab === key ? 600 : 400,
-            color: tab === key ? "#4a9fd4" : "#6b7a8d", cursor: "pointer", transition: "all 0.2s",
-          }}>{label}</button>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
+        {[
+          { label: "Preguntas totales", valor: dashboard.totalPreguntas, icon: "📚", color: "#4a9fd4" },
+          { label: "Preguntas activas", valor: dashboard.activas, icon: "✅", color: "#4caf82" },
+          { label: "Pool guardia", valor: dashboard.poolGuardia, icon: "🚑", color: "#e07b54" },
+          { label: "Guardia activa", valor: dashboard.guardiaActiva, icon: "🟠", color: "#9b6dcc" },
+        ].map((card) => (
+          <div key={card.label} style={{ background: "#fff", borderRadius: 16, padding: "20px 24px", border: "1px solid #e2e8f0", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
+            <div style={{ fontSize: 28, marginBottom: 8 }}>{card.icon}</div>
+            <div style={{ fontSize: 28, fontWeight: 800, color: card.color }}>
+              {dashboard.loading ? "…" : card.valor}
+            </div>
+            <div style={{ fontSize: 13, color: "#9aa5b4", marginTop: 4 }}>{card.label}</div>
+          </div>
         ))}
       </div>
 
-      <div style={{ maxWidth: 900, margin: "0 auto", padding: "28px 24px" }}>
-
-        {/* ── DASHBOARD ── */}
-        {tab === "dashboard" && (
-          <>
-            {dashboard.error && (
-              <div style={{
-                background: "#fff3f3", border: "1px solid #f0b8b8", borderRadius: 16,
-                padding: "16px 20px", color: "#8f2d2d", marginBottom: 20,
-              }}>
-                No se pudo cargar el resumen docente: {dashboard.error}
-              </div>
-            )}
-
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 28 }}>
-              {[
-                { label: "Preguntas totales", valor: dashboard.totalPreguntas, icon: "📚", color: "#4a9fd4" },
-                { label: "Preguntas activas", valor: dashboard.activas, icon: "✅", color: "#4caf82" },
-                { label: "Pool guardia", valor: dashboard.poolGuardia, icon: "🚑", color: "#e07b54" },
-                { label: "Guardia activa", valor: dashboard.guardiaActiva, icon: "🟠", color: "#9b6dcc" },
-              ].map((card) => (
-                <div key={card.label} style={{ background: "#fff", borderRadius: 16, padding: "20px 24px", border: "1px solid #e2e8f0", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
-                  <div style={{ fontSize: 28, marginBottom: 8 }}>{card.icon}</div>
-                  <div style={{ fontSize: 28, fontWeight: 800, color: card.color }}>
-                    {dashboard.loading ? "…" : card.valor}
+      <div style={{ display: "grid", gridTemplateColumns: "1.1fr 0.9fr", gap: 20 }}>
+        <div style={{ background: "#fff", borderRadius: 16, padding: "24px 28px", border: "1px solid #e2e8f0" }}>
+          <h3 style={{ margin: "0 0 20px", fontSize: 16, fontWeight: 700, color: "#1a2e44" }}>
+            Distribución por año
+          </h3>
+          {dashboard.loading ? (
+            <div style={{ color: "#6c7d90" }}>Cargando distribución…</div>
+          ) : dashboard.porAnio.length === 0 ? (
+            <div style={{ color: "#6c7d90" }}>Todavía no hay preguntas cargadas por año.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              {dashboard.porAnio.map(({ anio, total }) => (
+                <div key={anio}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                    <span style={{ fontSize: 14, color: "#4a5568" }}>{anio}</span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: "#1a2e44" }}>{total}</span>
                   </div>
-                  <div style={{ fontSize: 13, color: "#9aa5b4", marginTop: 4 }}>{card.label}</div>
+                  <ProgressBar value={total} max={dashboard.totalPreguntas || 1} color="#4a9fd4" height={10} />
                 </div>
               ))}
             </div>
+          )}
+        </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1.1fr 0.9fr", gap: 20 }}>
-              <div style={{ background: "#fff", borderRadius: 16, padding: "24px 28px", border: "1px solid #e2e8f0" }}>
-                <h3 style={{ margin: "0 0 20px", fontSize: 16, fontWeight: 700, color: "#1a2e44" }}>
-                  Distribución por año
-                </h3>
-                {dashboard.loading ? (
-                  <div style={{ color: "#6c7d90" }}>Cargando distribución…</div>
-                ) : dashboard.porAnio.length === 0 ? (
-                  <div style={{ color: "#6c7d90" }}>Todavía no hay preguntas cargadas por año.</div>
-                ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                    {dashboard.porAnio.map(({ anio, total }) => (
-                      <div key={anio}>
-                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                          <span style={{ fontSize: 14, color: "#4a5568" }}>{anio}</span>
-                          <span style={{ fontSize: 14, fontWeight: 700, color: "#1a2e44" }}>{total}</span>
-                        </div>
-                        <ProgressBar value={total} max={dashboard.totalPreguntas || 1} color="#4a9fd4" height={10} />
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div style={{ background: "#fff", borderRadius: 16, padding: "24px 28px", border: "1px solid #e2e8f0" }}>
-                <h3 style={{ margin: "0 0 20px", fontSize: 16, fontWeight: 700, color: "#1a2e44" }}>
-                  Rotaciones con más preguntas
-                </h3>
-                {dashboard.loading ? (
-                  <div style={{ color: "#6c7d90" }}>Cargando rotaciones…</div>
-                ) : dashboard.porRotacion.length === 0 ? (
-                  <div style={{ color: "#6c7d90" }}>Todavía no hay rotaciones disponibles en el banco.</div>
-                ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                    {dashboard.porRotacion.map(({ rotacion, total }) => (
-                      <div key={rotacion} style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
-                        <span style={{ fontSize: 14, color: "#4a5568" }}>{rotacion}</span>
-                        <span style={{ fontSize: 14, fontWeight: 700, color: "#1a2e44" }}>{total}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+        <div style={{ background: "#fff", borderRadius: 16, padding: "24px 28px", border: "1px solid #e2e8f0" }}>
+          <h3 style={{ margin: "0 0 20px", fontSize: 16, fontWeight: 700, color: "#1a2e44" }}>
+            Rotaciones con más preguntas
+          </h3>
+          {dashboard.loading ? (
+            <div style={{ color: "#6c7d90" }}>Cargando rotaciones…</div>
+          ) : dashboard.porRotacion.length === 0 ? (
+            <div style={{ color: "#6c7d90" }}>Todavía no hay rotaciones disponibles en el banco.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {dashboard.porRotacion.map(({ rotacion, total }) => (
+                <div key={rotacion} style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
+                  <span style={{ fontSize: 14, color: "#4a5568" }}>{rotacion}</span>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: "#1a2e44" }}>{total}</span>
+                </div>
+              ))}
             </div>
-          </>
-        )}
-
-        {/* ── RESIDENTES ── */}
-        {tab === "residentes" && (
-          <EmptyPanelState
-            icon="👥"
-            title="No hay residentes registrados todavía"
-            description="Cuando se cree la tabla de residentes en Supabase, esta sección mostrará la cohorte real. Por ahora no se cargan datos de ejemplo."
-          />
-        )}
-
-        {/* ── BANCO ── */}
-        {tab === "banco" && (
-          <AdminBancoPreguntas
-            embedded
-            title="Banco de preguntas"
-            description="Consulta académica del banco real conectado a Supabase, con filtros, detalle completo y estado de activación."
-          />
-        )}
+          )}
+        </div>
       </div>
     </div>
   );
@@ -1063,7 +668,7 @@ export default function App() {
   const [cargandoSesion, setCargandoSesion] = useState(true);
   const [modoPrueba, setModoPrueba] = useState(false);
   const [pathname, setPathname] = useState(() =>
-    normalizeAdminPath(getCurrentPathname())
+    normalizePathname(getCurrentPathname())
   );
 
   useEffect(() => {
@@ -1071,23 +676,16 @@ export default function App() {
       const normalizado = (supabaseUser?.email || "").trim().toLowerCase();
       if (!normalizado) return null;
 
-      if (supabaseUser?.app_metadata?.role === "admin") {
-        return {
-          nombre: normalizado,
-          rol: "admin",
-          avatar: "AD",
-          email: normalizado,
-        };
-      }
-
-      if (RESIDENTES_POR_EMAIL[normalizado]) {
-        return { ...RESIDENTES_POR_EMAIL[normalizado], email: normalizado };
-      }
+      const role = supabaseUser?.app_metadata?.role || null;
+      const displayName =
+        supabaseUser?.user_metadata?.nombre ||
+        supabaseUser?.user_metadata?.full_name ||
+        normalizado;
 
       return {
-        nombre: normalizado,
-        rol: "docente",
-        avatar: "DO",
+        nombre: displayName,
+        rol: role || "pendiente",
+        avatar: initialsFromName(displayName),
         email: normalizado,
       };
     };
@@ -1112,7 +710,7 @@ export default function App() {
   }, [modoPrueba]);
 
   useEffect(() => {
-    const syncPathname = () => setPathname(normalizeAdminPath(getCurrentPathname()));
+    const syncPathname = () => setPathname(normalizePathname(getCurrentPathname()));
     window.addEventListener("popstate", syncPathname);
     return () => window.removeEventListener("popstate", syncPathname);
   }, []);
@@ -1126,40 +724,50 @@ export default function App() {
     if (cargandoSesion) return;
 
     if (!usuario) {
-      if (isAdminPath(pathname)) {
-        setPathname("/login");
-      }
+      if (pathname !== "/login") setPathname("/login");
       return;
     }
 
     if (usuario.rol === "admin") {
-      if (pathname === "/" || pathname === "/login") {
+      if (pathname === "/" || pathname === "/login" || isDocentePath(pathname) || isResidentPath(pathname) || pathname === "/pendiente-autorizacion") {
         setPathname("/admin/banco-preguntas");
       }
       return;
     }
 
-    if (isAdminPath(pathname)) {
-      setPathname("/login");
+    if (usuario.rol === "docente") {
+      if (pathname === "/" || pathname === "/login" || isAdminPath(pathname) || isResidentPath(pathname) || pathname === "/pendiente-autorizacion") {
+        setPathname("/docente/dashboard");
+      }
       return;
     }
 
-    if (pathname === "/login") {
-      setPathname("/");
+    if (usuario.rol === "residente") {
+      if (pathname !== "/mis-examenes") {
+        setPathname("/mis-examenes");
+      }
+      return;
+    }
+
+    if (usuario.rol === "pendiente") {
+      if (pathname !== "/pendiente-autorizacion") {
+        setPathname("/pendiente-autorizacion");
+      }
+      return;
     }
   }, [cargandoSesion, pathname, usuario]);
 
   const navigate = (nextPath) => {
-    const normalized = normalizeAdminPath(nextPath);
+    const normalized = normalizePathname(nextPath);
     window.history.pushState({}, "", normalized);
     setPathname(normalized);
   };
 
   const entrarModoPrueba = () => {
     setModoPrueba(true);
-    setUsuario(USUARIOS.residente);
+    setUsuario(USUARIOS.modoPrueba);
     setCargandoSesion(false);
-    navigate("/");
+    navigate("/mis-examenes");
   };
 
   const cerrarSesion = async () => {
@@ -1175,7 +783,7 @@ export default function App() {
   };
 
   const renderAdminSection = () => {
-    const adminPath = normalizeAdminPath(pathname);
+    const adminPath = normalizePathname(pathname);
 
     let content = null;
 
@@ -1189,12 +797,7 @@ export default function App() {
         />
       );
     } else if (adminPath === "/admin/residentes") {
-      content = (
-        <AdminPlaceholder
-          title="Residentes"
-          description="Espacio preparado para la gestión futura de residentes, cohortes y permisos."
-        />
-      );
+      content = <ResidentesBoard />;
     } else {
       content = <AdminBancoPreguntas />;
     }
@@ -1205,6 +808,44 @@ export default function App() {
         onNavigate={navigate}
         onLogout={cerrarSesion}
         userEmail={usuario?.email}
+        navItems={ADMIN_NAV_ITEMS}
+        heading="Admin"
+        subtitle="ResidenciaMF"
+        sessionLabel="Sesión admin"
+        modeBadge="Modo admin"
+      >
+        {content}
+      </AdminLayout>
+    );
+  };
+
+  const renderDocenteSection = () => {
+    const docentePath = normalizePathname(pathname);
+
+    let content = null;
+
+    if (docentePath === "/docente/residentes") {
+      content = (
+        <ResidentesBoard
+          title="Residentes"
+          description="Vista académica de residentes en modo lectura. No se habilitan ediciones desde el perfil docente."
+        />
+      );
+    } else {
+      content = <DocenteDashboard />;
+    }
+
+    return (
+      <AdminLayout
+        pathname={docentePath}
+        onNavigate={navigate}
+        onLogout={cerrarSesion}
+        userEmail={usuario?.email}
+        navItems={DOCENTE_NAV_ITEMS}
+        heading="Docente"
+        subtitle="ResidenciaMF"
+        sessionLabel="Sesión docente"
+        modeBadge="Modo docente"
       >
         {content}
       </AdminLayout>
@@ -1227,7 +868,9 @@ export default function App() {
   }
 
   if (!usuario) return <Login onModoPrueba={entrarModoPrueba} />;
-  if (usuario.rol === "admin" && isAdminPath(pathname)) return renderAdminSection();
+  if (usuario.rol === "pendiente") return <PendingAuthorization onLogout={cerrarSesion} />;
+  if (usuario.rol === "admin") return renderAdminSection();
+  if (usuario.rol === "docente") return renderDocenteSection();
   if (usuario.rol === "residente") return <VistaResidente usuario={usuario} onLogout={cerrarSesion} />;
-  return <VistaDocente usuario={usuario} onLogout={cerrarSesion} />;
+  return <PendingAuthorization onLogout={cerrarSesion} />;
 }

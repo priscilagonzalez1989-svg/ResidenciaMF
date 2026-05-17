@@ -36,6 +36,11 @@ export default function AdminLayout({
   onNavigate,
   onLogout,
   userEmail,
+  navItems = SIDEBAR_ITEMS,
+  heading = "Admin",
+  subtitle = "ResidenciaMF",
+  sessionLabel = "Sesión",
+  modeBadge,
   children,
 }) {
   return (
@@ -95,14 +100,14 @@ export default function AdminLayout({
             </div>
             <div>
               <div style={{ fontSize: 20, fontWeight: 800, color: "#0f2744" }}>
-                Admin
+                {heading}
               </div>
-              <div style={{ fontSize: 13, color: "#7a8b9d" }}>ResidenciaMF</div>
+              <div style={{ fontSize: 13, color: "#7a8b9d" }}>{subtitle}</div>
             </div>
           </div>
 
           <nav style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {SIDEBAR_ITEMS.map((item) => (
+            {navItems.map((item) => (
               <SidebarItem
                 key={item.path}
                 item={item}
@@ -120,8 +125,26 @@ export default function AdminLayout({
             }}
           >
             <div style={{ fontSize: 12, color: "#7a8b9d", marginBottom: 6 }}>
-              Sesión admin
+              {sessionLabel}
             </div>
+            {modeBadge && (
+              <div
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  borderRadius: 999,
+                  padding: "6px 10px",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  letterSpacing: "0.03em",
+                  color: "#0f2744",
+                  background: "#e8f2fb",
+                  marginBottom: 10,
+                }}
+              >
+                {modeBadge}
+              </div>
+            )}
             <div style={{ fontSize: 13, color: "#1a2e44", marginBottom: 14 }}>
               {userEmail || "Sin email"}
             </div>
