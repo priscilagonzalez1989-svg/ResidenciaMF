@@ -731,7 +731,7 @@ export default function ResidentExamApp({ user, onLogout }) {
     return (
       <div style={{ minHeight: "100vh", background: "#f4f6f9", fontFamily: "'DM Sans', 'Segoe UI', sans-serif" }}>
         <div style={{ background: "#0f2744", color: "#fff", padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ fontWeight: 700, fontSize: 16 }}>🩺 ResidenciaMF · Resultados</div>
+          <div style={{ fontWeight: 700, fontSize: 16 }}>🩺 ResidenciaMF · Resultados R2</div>
           <button onClick={() => window.location.reload()} style={{ background: "none", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", borderRadius: 8, padding: "6px 14px", cursor: "pointer", fontSize: 13 }}>
             Volver a mis exámenes
           </button>
@@ -822,7 +822,7 @@ export default function ResidentExamApp({ user, onLogout }) {
         <div style={{ background: "#0f2744", color: "#fff", padding: "16px 24px", position: "sticky", top: 0, zIndex: 10 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 24 }}>
             <div>
-              <div style={{ fontWeight: 700, fontSize: 16 }}>🩺 {currentExam?.rotacion}</div>
+              <div style={{ fontWeight: 700, fontSize: 16 }}>🩺 {currentExam?.rotacion} · Examen R2</div>
               <div style={{ fontSize: 12, opacity: 0.65 }}>
                 {phase === "additional" ? "Preguntas adicionales" : "Examen en curso"} · Pregunta {currentIndex + 1} de {allQuestions.length}
               </div>
@@ -945,7 +945,7 @@ export default function ResidentExamApp({ user, onLogout }) {
           <span style={{ fontSize: 20 }}>🩺</span>
           <div>
             <div style={{ fontWeight: 700, fontSize: 16 }}>ResidenciaMF</div>
-            <div style={{ fontSize: 12, opacity: 0.6 }}>Mis exámenes</div>
+            <div style={{ fontSize: 12, opacity: 0.6 }}>Mis exámenes R2</div>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
