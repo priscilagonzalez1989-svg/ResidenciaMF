@@ -92,28 +92,6 @@ const RESIDENTES_POR_EMAIL = {
   },
 };
 
-// ── DATOS SIMULADOS DASHBOARD ────────────────────────────────────────────────
-const RESIDENTES_DASHBOARD = [
-  {
-    nombre: "Lucas Fernández", año: "R1", avatar: "LF",
-    dominios: { "Anamnesis": 82, "Diagnóstico": 68, "Terapéutica": 55, "Estudios complementarios": 74, "Prevención": 90, "Comunicación": 78 },
-    rotaciones: { "Medicina Familiar": 76, "Pediatría": 61, "Traumatología": 83 },
-    examenes: 4, ultimo: "Pediatría · hace 3 días",
-  },
-  {
-    nombre: "Valentina Ruiz", año: "R1", avatar: "VR",
-    dominios: { "Anamnesis": 91, "Diagnóstico": 84, "Terapéutica": 72, "Estudios complementarios": 67, "Prevención": 88, "Comunicación": 95 },
-    rotaciones: { "Medicina Familiar": 88, "Pediatría": 79, "Traumatología": 71 },
-    examenes: 4, ultimo: "Traumatología · hace 1 semana",
-  },
-  {
-    nombre: "Matías Córdoba", año: "R2", avatar: "MC",
-    dominios: { "Anamnesis": 78, "Diagnóstico": 71, "Terapéutica": 62, "Estudios complementarios": 85, "Prevención": 80, "Comunicación": 69 },
-    rotaciones: { "Medicina Familiar": 75, "Pediatría": 68, "Ginecología": 60, "Dermatología": 88 },
-    examenes: 7, ultimo: "Ginecología · ayer",
-  },
-];
-
 // ── COLORES POR DOMINIO ──────────────────────────────────────────────────────
 const DOMINIO_COLOR = {
   "Terapéutica": "#e07b54",
@@ -268,6 +246,47 @@ function ProgressBar({ value, max = 100, color = "#2c5f8a", height = 8 }) {
         background: color || barColor,
         borderRadius: 99, transition: "width 0.6s ease",
       }} />
+    </div>
+  );
+}
+
+function EmptyPanelState({ icon = "📭", title, description }) {
+  return (
+    <div
+      style={{
+        background: "#fff",
+        borderRadius: 18,
+        border: "1px dashed #cfd9e4",
+        padding: "44px 28px",
+        minHeight: 320,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        textAlign: "center",
+      }}
+    >
+      <div
+        style={{
+          width: 72,
+          height: 72,
+          borderRadius: 20,
+          background: "#eef5fb",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 32,
+          marginBottom: 18,
+        }}
+      >
+        {icon}
+      </div>
+      <h3 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "#0f2744" }}>
+        {title}
+      </h3>
+      <p style={{ margin: "10px 0 0", fontSize: 15, color: "#6c7d90", lineHeight: 1.6, maxWidth: 520 }}>
+        {description}
+      </p>
     </div>
   );
 }
@@ -841,19 +860,74 @@ function VistaResidente({ usuario, onLogout }) {
 // ── VISTA DOCENTE ────────────────────────────────────────────────────────────
 function VistaDocente({ usuario, onLogout }) {
   const [tab, setTab] = useState("dashboard");
-  const [residenteSelec, setResidenteSelec] = useState(null);
-
-  const dominiosGlobales = {};
-  RESIDENTES_DASHBOARD.forEach(r => {
-    Object.entries(r.dominios).forEach(([d, v]) => {
-      if (!dominiosGlobales[d]) dominiosGlobales[d] = [];
-      dominiosGlobales[d].push(v);
-    });
+  const [dashboard, setDashboard] = useState({
+    loading: true,
+    error: "",
+    totalPreguntas: 0,
+    activas: 0,
+    poolGuardia: 0,
+    guardiaActiva: 0,
+    porAnio: [],
+    porRotacion: [],
   });
-  const promediosDominios = Object.entries(dominiosGlobales).map(([d, vals]) => ({
-    dominio: d,
-    promedio: Math.round(vals.reduce((a, b) => a + b, 0) / vals.length),
-  })).sort((a, b) => a.promedio - b.promedio);
+
+  useEffect(() => {
+    let active = true;
+
+    const cargarDashboard = async () => {
+      setDashboard((current) => ({ ...current, loading: true, error: "" }));
+
+      const { data, error } = await supabase
+        .from("banco_preguntas")
+        .select("anio, rotacion, activa, pool_guardia, guardia_activa");
+
+      if (!active) return;
+
+      if (error) {
+        setDashboard((current) => ({
+          ...current,
+          loading: false,
+          error: error.message,
+        }));
+        return;
+      }
+
+      const questions = data || [];
+      const porAnioMap = {};
+      const porRotacionMap = {};
+
+      questions.forEach((item) => {
+        porAnioMap[item.anio] = (porAnioMap[item.anio] || 0) + 1;
+        porRotacionMap[item.rotacion] = (porRotacionMap[item.rotacion] || 0) + 1;
+      });
+
+      const porAnio = ["R1", "R2", "R3"]
+        .map((anio) => ({ anio, total: porAnioMap[anio] || 0 }))
+        .filter((item) => item.total > 0);
+
+      const porRotacion = Object.entries(porRotacionMap)
+        .map(([rotacion, total]) => ({ rotacion, total }))
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 6);
+
+      setDashboard({
+        loading: false,
+        error: "",
+        totalPreguntas: questions.length,
+        activas: questions.filter((item) => item.activa).length,
+        poolGuardia: questions.filter((item) => item.pool_guardia).length,
+        guardiaActiva: questions.filter((item) => item.guardia_activa).length,
+        porAnio,
+        porRotacion,
+      });
+    };
+
+    cargarDashboard();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   return (
     <div style={{ minHeight: "100vh", background: "#f4f6f9", fontFamily: "'DM Sans', 'Segoe UI', sans-serif" }}>
@@ -888,52 +962,74 @@ function VistaDocente({ usuario, onLogout }) {
         {/* ── DASHBOARD ── */}
         {tab === "dashboard" && (
           <>
-            {/* Cards resumen */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 28 }}>
+            {dashboard.error && (
+              <div style={{
+                background: "#fff3f3", border: "1px solid #f0b8b8", borderRadius: 16,
+                padding: "16px 20px", color: "#8f2d2d", marginBottom: 20,
+              }}>
+                No se pudo cargar el resumen docente: {dashboard.error}
+              </div>
+            )}
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 28 }}>
               {[
-                { label: "Residentes activos", valor: 6, icon: "👥", color: "#4a9fd4" },
-                { label: "Exámenes este mes", valor: 14, icon: "📝", color: "#e07b54" },
-                { label: "Promedio cohorte", valor: "72%", icon: "📊", color: "#4caf82" },
-              ].map(c => (
-                <div key={c.label} style={{ background: "#fff", borderRadius: 16, padding: "20px 24px", border: "1px solid #e2e8f0", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
-                  <div style={{ fontSize: 28, marginBottom: 8 }}>{c.icon}</div>
-                  <div style={{ fontSize: 28, fontWeight: 800, color: c.color }}>{c.valor}</div>
-                  <div style={{ fontSize: 13, color: "#9aa5b4", marginTop: 4 }}>{c.label}</div>
+                { label: "Preguntas totales", valor: dashboard.totalPreguntas, icon: "📚", color: "#4a9fd4" },
+                { label: "Preguntas activas", valor: dashboard.activas, icon: "✅", color: "#4caf82" },
+                { label: "Pool guardia", valor: dashboard.poolGuardia, icon: "🚑", color: "#e07b54" },
+                { label: "Guardia activa", valor: dashboard.guardiaActiva, icon: "🟠", color: "#9b6dcc" },
+              ].map((card) => (
+                <div key={card.label} style={{ background: "#fff", borderRadius: 16, padding: "20px 24px", border: "1px solid #e2e8f0", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
+                  <div style={{ fontSize: 28, marginBottom: 8 }}>{card.icon}</div>
+                  <div style={{ fontSize: 28, fontWeight: 800, color: card.color }}>
+                    {dashboard.loading ? "…" : card.valor}
+                  </div>
+                  <div style={{ fontSize: 13, color: "#9aa5b4", marginTop: 4 }}>{card.label}</div>
                 </div>
               ))}
             </div>
 
-            {/* Dominios más débiles */}
-            <div style={{ background: "#fff", borderRadius: 16, padding: "24px 28px", marginBottom: 20, border: "1px solid #e2e8f0" }}>
-              <h3 style={{ margin: "0 0 20px", fontSize: 16, fontWeight: 700, color: "#1a2e44" }}>
-                🎯 Dominios por promedio de cohorte
-              </h3>
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {promediosDominios.map(({ dominio, promedio }) => (
-                  <div key={dominio}>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-                      <span style={{ fontSize: 14, color: "#4a5568" }}>{dominio}</span>
-                      <span style={{ fontSize: 14, fontWeight: 700, color: promedio >= 75 ? "#4caf82" : promedio >= 55 ? "#e8a838" : "#e05454" }}>
-                        {promedio}%
-                      </span>
-                    </div>
-                    <ProgressBar value={promedio} color={DOMINIO_COLOR[dominio]} height={10} />
+            <div style={{ display: "grid", gridTemplateColumns: "1.1fr 0.9fr", gap: 20 }}>
+              <div style={{ background: "#fff", borderRadius: 16, padding: "24px 28px", border: "1px solid #e2e8f0" }}>
+                <h3 style={{ margin: "0 0 20px", fontSize: 16, fontWeight: 700, color: "#1a2e44" }}>
+                  Distribución por año
+                </h3>
+                {dashboard.loading ? (
+                  <div style={{ color: "#6c7d90" }}>Cargando distribución…</div>
+                ) : dashboard.porAnio.length === 0 ? (
+                  <div style={{ color: "#6c7d90" }}>Todavía no hay preguntas cargadas por año.</div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                    {dashboard.porAnio.map(({ anio, total }) => (
+                      <div key={anio}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                          <span style={{ fontSize: 14, color: "#4a5568" }}>{anio}</span>
+                          <span style={{ fontSize: 14, fontWeight: 700, color: "#1a2e44" }}>{total}</span>
+                        </div>
+                        <ProgressBar value={total} max={dashboard.totalPreguntas || 1} color="#4a9fd4" height={10} />
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
-            </div>
 
-            {/* Alerta */}
-            <div style={{
-              background: "#fff8e8", border: "1px solid #f0d8a0", borderRadius: 16,
-              padding: "18px 24px", display: "flex", gap: 14, alignItems: "flex-start",
-            }}>
-              <span style={{ fontSize: 22 }}>⚠️</span>
-              <div>
-                <div style={{ fontWeight: 700, color: "#8a5a00", marginBottom: 4 }}>Área de refuerzo detectada</div>
-                <div style={{ fontSize: 14, color: "#6b4e00", lineHeight: 1.6 }}>
-                  <strong>Terapéutica</strong> es el dominio más débil de la cohorte (promedio 63%). Se recomienda refuerzo en los R1 antes del examen de Pediatría. Lucas Fernández (55%) y Matías Córdoba (62%) son los más afectados.
-                </div>
+              <div style={{ background: "#fff", borderRadius: 16, padding: "24px 28px", border: "1px solid #e2e8f0" }}>
+                <h3 style={{ margin: "0 0 20px", fontSize: 16, fontWeight: 700, color: "#1a2e44" }}>
+                  Rotaciones con más preguntas
+                </h3>
+                {dashboard.loading ? (
+                  <div style={{ color: "#6c7d90" }}>Cargando rotaciones…</div>
+                ) : dashboard.porRotacion.length === 0 ? (
+                  <div style={{ color: "#6c7d90" }}>Todavía no hay rotaciones disponibles en el banco.</div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    {dashboard.porRotacion.map(({ rotacion, total }) => (
+                      <div key={rotacion} style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
+                        <span style={{ fontSize: 14, color: "#4a5568" }}>{rotacion}</span>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: "#1a2e44" }}>{total}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </>
@@ -941,119 +1037,20 @@ function VistaDocente({ usuario, onLogout }) {
 
         {/* ── RESIDENTES ── */}
         {tab === "residentes" && (
-          <>
-            {!residenteSelec
-              ? RESIDENTES_DASHBOARD.map(r => (
-                  <div key={r.nombre} onClick={() => setResidenteSelec(r)} style={{
-                    background: "#fff", borderRadius: 16, padding: "20px 24px",
-                    marginBottom: 12, border: "1px solid #e2e8f0", cursor: "pointer",
-                    transition: "all 0.2s", boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
-                  }}
-                    onMouseEnter={e => { e.currentTarget.style.borderColor = "#4a9fd4"; e.currentTarget.style.boxShadow = "0 4px 16px rgba(74,159,212,0.15)"; }}
-                    onMouseLeave={e => { e.currentTarget.style.borderColor = "#e2e8f0"; e.currentTarget.style.boxShadow = "0 1px 4px rgba(0,0,0,0.04)"; }}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
-                      <Avatar initials={r.avatar} size={44} color="#2c5f8a" />
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 700, color: "#1a2e44", fontSize: 16 }}>{r.nombre}</div>
-                        <div style={{ fontSize: 13, color: "#9aa5b4" }}>{r.año} · {r.examenes} exámenes · {r.ultimo}</div>
-                      </div>
-                      <span style={{ fontSize: 18, color: "#c8d0da" }}>→</span>
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {Object.entries(r.dominios).slice(0, 3).map(([d, v]) => (
-                        <div key={d} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                          <span style={{ fontSize: 12, color: "#6b7a8d", width: 140, flexShrink: 0 }}>{d}</span>
-                          <ProgressBar value={v} color={DOMINIO_COLOR[d]} height={6} />
-                          <span style={{ fontSize: 12, fontWeight: 700, color: v >= 75 ? "#4caf82" : v >= 55 ? "#e8a838" : "#e05454", width: 36, textAlign: "right" }}>{v}%</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))
-              : (
-                <div>
-                  <button onClick={() => setResidenteSelec(null)} style={{
-                    background: "none", border: "none", color: "#4a9fd4", cursor: "pointer",
-                    fontSize: 14, fontWeight: 600, marginBottom: 20, padding: 0,
-                  }}>← Volver a residentes</button>
-
-                  <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 24 }}>
-                    <Avatar initials={residenteSelec.avatar} size={56} color="#2c5f8a" />
-                    <div>
-                      <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#1a2e44" }}>{residenteSelec.nombre}</h2>
-                      <p style={{ margin: "4px 0 0", color: "#6b7a8d", fontSize: 14 }}>{residenteSelec.año} · {residenteSelec.examenes} exámenes rendidos</p>
-                    </div>
-                  </div>
-
-                  <div style={{ background: "#fff", borderRadius: 16, padding: "24px 28px", marginBottom: 16, border: "1px solid #e2e8f0" }}>
-                    <h3 style={{ margin: "0 0 20px", fontSize: 15, fontWeight: 700, color: "#1a2e44" }}>Dominios evaluados</h3>
-                    {Object.entries(residenteSelec.dominios).map(([d, v]) => (
-                      <div key={d} style={{ marginBottom: 14 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-                          <span style={{ fontSize: 14, color: "#4a5568" }}>{d}</span>
-                          <span style={{ fontSize: 14, fontWeight: 700, color: v >= 75 ? "#4caf82" : v >= 55 ? "#e8a838" : "#e05454" }}>{v}%</span>
-                        </div>
-                        <ProgressBar value={v} color={DOMINIO_COLOR[d]} height={10} />
-                      </div>
-                    ))}
-                  </div>
-
-                  <div style={{ background: "#fff", borderRadius: 16, padding: "24px 28px", border: "1px solid #e2e8f0" }}>
-                    <h3 style={{ margin: "0 0 20px", fontSize: 15, fontWeight: 700, color: "#1a2e44" }}>Por rotación</h3>
-                    {Object.entries(residenteSelec.rotaciones).map(([rot, v]) => (
-                      <div key={rot} style={{ marginBottom: 14 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-                          <span style={{ fontSize: 14, color: "#4a5568" }}>{rot}</span>
-                          <span style={{ fontSize: 14, fontWeight: 700, color: v >= 75 ? "#4caf82" : v >= 55 ? "#e8a838" : "#e05454" }}>{v}%</span>
-                        </div>
-                        <ProgressBar value={v} height={10} />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )
-            }
-          </>
+          <EmptyPanelState
+            icon="👥"
+            title="No hay residentes registrados todavía"
+            description="Cuando se cree la tabla de residentes en Supabase, esta sección mostrará la cohorte real. Por ahora no se cargan datos de ejemplo."
+          />
         )}
 
         {/* ── BANCO ── */}
         {tab === "banco" && (
-          <>
-            <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
-              {["Todos", "R1", "R2", "R3"].map(f => (
-                <button key={f} style={{
-                  background: f === "Todos" ? "#4a9fd4" : "#fff", color: f === "Todos" ? "#fff" : "#4a5568",
-                  border: "1px solid #e2e8f0", borderRadius: 8, padding: "8px 16px",
-                  fontSize: 13, fontWeight: 600, cursor: "pointer",
-                }}>{f}</button>
-              ))}
-            </div>
-            {BANCO.map(p => (
-              <div key={p.id} style={{
-                background: "#fff", borderRadius: 14, padding: "18px 22px",
-                marginBottom: 10, border: "1px solid #e2e8f0",
-              }}>
-                <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
-                  <Badge text={p.ano} color="#2c5f8a" />
-                  <Badge text={p.rotacion} color={DOMINIO_COLOR[p.dominio] || "#6b7a8d"} />
-                  <Badge text={p.tipo} color="#4a9fd4" />
-                  <Badge text={p.dominio} color={DOMINIO_COLOR[p.dominio] || "#6b7a8d"} />
-                  <Badge text={`${p.puntaje_total} pts · ${p.cotejo.length} ítems`} color="#6b7a8d" />
-                </div>
-                <p style={{ fontSize: 14, color: "#4a5568", margin: 0, lineHeight: 1.6 }}>
-                  {p.enunciado.slice(0, 160)}{p.enunciado.length > 160 ? "..." : ""}
-                </p>
-              </div>
-            ))}
-            <div style={{
-              background: "#f0f6ff", borderRadius: 14, padding: "16px 20px",
-              border: "1px dashed #c8dff5", textAlign: "center", color: "#4a9fd4",
-              fontSize: 14, fontWeight: 600, cursor: "pointer",
-            }}>
-              + Ver las 247 preguntas del banco completo
-            </div>
-          </>
+          <AdminBancoPreguntas
+            embedded
+            title="Banco de preguntas"
+            description="Consulta académica del banco real conectado a Supabase, con filtros, detalle completo y estado de activación."
+          />
         )}
       </div>
     </div>

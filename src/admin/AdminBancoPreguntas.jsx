@@ -269,7 +269,11 @@ function Field({ label, value }) {
   );
 }
 
-export default function AdminBancoPreguntas() {
+export default function AdminBancoPreguntas({
+  embedded = false,
+  title = "Banco de preguntas",
+  description = "Gestión académica de preguntas de examen, con filtros y activación en tiempo real.",
+}) {
   const [filters, setFilters] = useState(FILTER_BASE);
   const [pagination, setPagination] = useState({ page: 1, total: 0 });
   const [questions, setQuestions] = useState([]);
@@ -396,18 +400,18 @@ export default function AdminBancoPreguntas() {
     <div style={{ minHeight: "100%", display: "flex", flexDirection: "column" }}>
       <div
         style={{
-          padding: "28px 32px 20px",
-          borderBottom: "1px solid #e8eef5",
-          background: "linear-gradient(180deg, #f8fbff 0%, #ffffff 100%)",
+          padding: embedded ? "0 0 20px" : "28px 32px 20px",
+          borderBottom: embedded ? "none" : "1px solid #e8eef5",
+          background: embedded ? "transparent" : "linear-gradient(180deg, #f8fbff 0%, #ffffff 100%)",
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start" }}>
           <div>
             <h1 style={{ margin: 0, fontSize: 30, fontWeight: 800, color: "#0f2744" }}>
-              Banco de preguntas
+              {title}
             </h1>
             <p style={{ margin: "10px 0 0", color: "#6c7d90", fontSize: 15 }}>
-              Gestión académica de preguntas de examen, con filtros y activación en tiempo real.
+              {description}
             </p>
           </div>
           <div
@@ -426,7 +430,7 @@ export default function AdminBancoPreguntas() {
         </div>
       </div>
 
-      <div style={{ padding: 24, display: "grid", gap: 20 }}>
+      <div style={{ padding: embedded ? 0 : 24, display: "grid", gap: 20 }}>
         <div
           style={{
             display: "flex",
