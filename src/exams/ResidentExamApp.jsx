@@ -8,6 +8,7 @@ const ROTACIONES = [
   { key: "reumatologia", label: "Reumatología", bancoRotaciones: ["Reumatología"], allowAdditional: false },
 ];
 
+const TARGET_ANIO = "R2";
 const EXAM_DURATION_SECONDS = 60 * 60;
 const OPENROUTER_API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY || "";
 const OPENROUTER_SITE_URL = import.meta.env.VITE_OPENROUTER_SITE_URL || window.location.origin;
@@ -225,7 +226,7 @@ async function fetchCandidateQuestions({ rotaciones, domain, excludeNumbers = []
   let query = supabase
     .from("banco_preguntas")
     .select("*")
-    .eq("anio", "R3")
+    .eq("anio", TARGET_ANIO)
     .in("rotacion", rotaciones)
     .eq("activa", true);
 
@@ -948,7 +949,7 @@ export default function ResidentExamApp({ user, onLogout }) {
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <HeaderBadge text="R3" color="#0f2744" background="#d9eefc" />
+          <HeaderBadge text={TARGET_ANIO} color="#0f2744" background="#d9eefc" />
           <button onClick={onLogout} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.6)", cursor: "pointer", fontSize: 13 }}>Salir</button>
         </div>
       </div>
