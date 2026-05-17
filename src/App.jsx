@@ -4,6 +4,7 @@ import AdminBancoPreguntas from "./admin/AdminBancoPreguntas";
 import AdminLayout from "./admin/AdminLayout";
 import AdminPlaceholder from "./admin/AdminPlaceholder";
 import ResidentesBoard from "./admin/ResidentesBoard";
+import ResidentExamApp from "./exams/ResidentExamApp";
 
 // ── ORDEN DE DOMINIOS (flujo de consulta real) ───────────────────────────────
 const ORDEN_DOMINIOS = [
@@ -67,10 +68,6 @@ const BANCO = [
 ];
 
 // ── USUARIOS DEMO ───────────────────────────────────────────────────────────
-const USUARIOS = {
-  modoPrueba: { nombre: "Modo prueba", rol: "residente", avatar: "MP", email: "modo-prueba@local" },
-};
-
 // ── COLORES POR DOMINIO ──────────────────────────────────────────────────────
 const DOMINIO_COLOR = {
   "Terapéutica": "#e07b54",
@@ -83,13 +80,6 @@ const DOMINIO_COLOR = {
   "Examen físico": "#d45f8c",
   "Integrador": "#6b7fa3",
 };
-
-const OPENROUTER_API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY;
-const OPENROUTER_SITE_URL = import.meta.env.VITE_OPENROUTER_SITE_URL || window.location.origin;
-const OPENROUTER_APP_NAME = import.meta.env.VITE_OPENROUTER_APP_NAME || "ResidenciaMF";
-const OPENROUTER_KEY_STORAGE = "residenciamf_openrouter_api_key";
-const OPENROUTER_MODEL = "anthropic/claude-sonnet-4-5";
-const OPENROUTER_MODEL_LABEL = "Claude Sonnet 4.5";
 
 function getCurrentPathname() {
   return window.location.pathname || "/";
@@ -135,94 +125,6 @@ function initialsFromName(value) {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() || "")
     .join("");
-}
-
-function getOpenRouterApiKey() {
-  return (
-    window.localStorage.getItem(OPENROUTER_KEY_STORAGE)?.trim() ||
-    OPENROUTER_API_KEY ||
-    ""
-  );
-}
-
-function extraerJson(texto) {
-  const limpio = texto.replace(/```json|```/g, "").trim();
-  const inicio = limpio.indexOf("{");
-  const fin = limpio.lastIndexOf("}");
-  if (inicio === -1 || fin === -1) {
-    throw new Error("La IA no devolvió un JSON válido.");
-  }
-  return JSON.parse(limpio.slice(inicio, fin + 1));
-}
-
-// ── LLAMADA A OPENROUTER ─────────────────────────────────────────────────────
-async function corregirConIA(pregunta, respuesta) {
-  const apiKey = getOpenRouterApiKey();
-
-  if (!apiKey) {
-    throw new Error("Falta configurar la API key de OpenRouter.");
-  }
-
-  const cotejo_texto = pregunta.cotejo
-    .map((c, i) => `Ítem ${i + 1} (${c.puntaje} pts): ${c.item}`)
-    .join("\n");
-
-  const prompt = `Sos un evaluador de residentes de medicina familiar argentina. 
-Evaluá la respuesta del residente usando exclusivamente la lista de cotejo provista.
-
-CASO CLÍNICO / PREGUNTA:
-${pregunta.enunciado}
-
-LISTA DE COTEJO:
-${cotejo_texto}
-Puntaje total posible: ${pregunta.puntaje_total} pts
-
-RESPUESTA DEL RESIDENTE:
-${respuesta}
-
-Respondé ÚNICAMENTE con un JSON válido, sin texto adicional, con esta estructura exacta:
-{
-  "items": [
-    {
-      "item_n": 1,
-      "descripcion": "texto del ítem",
-      "estado": "completo" | "parcial" | "ausente",
-      "puntaje_obtenido": número,
-      "puntaje_maximo": número,
-      "fundamento": "una línea explicando por qué"
-    }
-  ],
-  "puntaje_total": número,
-  "puntaje_maximo": número,
-  "porcentaje": número,
-  "comentario_general": "feedback breve y constructivo en segunda persona del singular (tuteo argentino)"
-}`;
-
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-      "HTTP-Referer": OPENROUTER_SITE_URL,
-      "X-Title": OPENROUTER_APP_NAME,
-    },
-    body: JSON.stringify({
-      model: OPENROUTER_MODEL,
-      temperature: 0.2,
-      max_tokens: 1200,
-      response_format: { type: "json_object" },
-      messages: [{ role: "user", content: prompt }],
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`OpenRouter devolvió ${response.status}: ${errorText}`);
-  }
-
-  const data = await response.json();
-  const text = data.choices?.[0]?.message?.content || "";
-  return extraerJson(text);
 }
 
 // ── COMPONENTES UI ───────────────────────────────────────────────────────────
@@ -365,7 +267,7 @@ function PendingAuthorization({ onLogout }) {
 }
 
 // ── PANTALLA LOGIN ───────────────────────────────────────────────────────────
-function Login({ onModoPrueba }) {
+function Login() {
   const [email, setEmail] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState("");
@@ -450,18 +352,6 @@ function Login({ onModoPrueba }) {
               {enviando ? "Enviando..." : "Enviar link de acceso"}
             </button>
 
-            <button
-              onClick={onModoPrueba}
-              style={{
-                background: "rgba(255,255,255,0.1)", color: "#fff",
-                border: "1px solid rgba(255,255,255,0.2)",
-                borderRadius: 12, padding: "16px 24px", fontSize: 15, fontWeight: 600,
-                cursor: "pointer", transition: "all 0.2s",
-              }}
-            >
-              Modo prueba
-            </button>
-
             {mensaje && (
               <div style={{
                 background: "rgba(76, 175, 130, 0.15)", border: "1px solid rgba(76, 175, 130, 0.35)",
@@ -482,35 +372,6 @@ function Login({ onModoPrueba }) {
           </div>
         </div>
         <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 12 }}>Prototipo — Residencia de Medicina Familiar · Córdoba</p>
-      </div>
-    </div>
-  );
-}
-
-// ── VISTA RESIDENTE ──────────────────────────────────────────────────────────
-function VistaResidente({ usuario, onLogout }) {
-  return (
-    <div style={{ minHeight: "100vh", background: "#f4f6f9", fontFamily: "'DM Sans', 'Segoe UI', sans-serif" }}>
-      <div style={{ background: "#0f2744", color: "#fff", padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ fontSize: 20 }}>🩺</span>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 16 }}>ResidenciaMF</div>
-            <div style={{ fontSize: 12, opacity: 0.6 }}>Mis exámenes</div>
-          </div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <Avatar initials={usuario.avatar} size={34} color="#4a9fd4" />
-          <button onClick={onLogout} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: 13 }}>Salir</button>
-        </div>
-      </div>
-
-      <div style={{ maxWidth: 760, margin: "0 auto", padding: "36px 24px" }}>
-        <EmptyPanelState
-          icon="📝"
-          title="Próximamente — exámenes en preparación"
-          description="Esta sección se conectará con tus exámenes pendientes reales. Por ahora dejamos preparada la ruta /mis-examenes sin mostrar datos de otros residentes."
-        />
       </div>
     </div>
   );
@@ -666,7 +527,6 @@ function DocenteDashboard() {
 export default function App() {
   const [usuario, setUsuario] = useState(null);
   const [cargandoSesion, setCargandoSesion] = useState(true);
-  const [modoPrueba, setModoPrueba] = useState(false);
   const [pathname, setPathname] = useState(() =>
     normalizePathname(getCurrentPathname())
   );
@@ -700,14 +560,13 @@ export default function App() {
     hidratarSesion();
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (modoPrueba) return;
       const supabaseUser = session?.user || null;
       setUsuario(construirUsuario(supabaseUser));
       setCargandoSesion(false);
     });
 
     return () => listener.subscription.unsubscribe();
-  }, [modoPrueba]);
+  }, []);
 
   useEffect(() => {
     const syncPathname = () => setPathname(normalizePathname(getCurrentPathname()));
@@ -763,20 +622,7 @@ export default function App() {
     setPathname(normalized);
   };
 
-  const entrarModoPrueba = () => {
-    setModoPrueba(true);
-    setUsuario(USUARIOS.modoPrueba);
-    setCargandoSesion(false);
-    navigate("/mis-examenes");
-  };
-
   const cerrarSesion = async () => {
-    if (modoPrueba) {
-      setModoPrueba(false);
-      setUsuario(null);
-      return;
-    }
-
     await supabase.auth.signOut();
     setUsuario(null);
     navigate("/login");
@@ -867,10 +713,10 @@ export default function App() {
     );
   }
 
-  if (!usuario) return <Login onModoPrueba={entrarModoPrueba} />;
+  if (!usuario) return <Login />;
   if (usuario.rol === "pendiente") return <PendingAuthorization onLogout={cerrarSesion} />;
   if (usuario.rol === "admin") return renderAdminSection();
   if (usuario.rol === "docente") return renderDocenteSection();
-  if (usuario.rol === "residente") return <VistaResidente usuario={usuario} onLogout={cerrarSesion} />;
+  if (usuario.rol === "residente") return <ResidentExamApp user={usuario} onLogout={cerrarSesion} />;
   return <PendingAuthorization onLogout={cerrarSesion} />;
 }
