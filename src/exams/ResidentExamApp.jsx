@@ -516,6 +516,39 @@ export default function ResidentExamApp({ user, onLogout }) {
 
   const canContinue = currentText.trim().length > 0 && !timeExpired && !exitSubmitting;
 
+  async function refreshRotationStates(residenteId = resident?.id) {
+    if (!residenteId) return;
+    const exams = await fetchRotationExams(residenteId);
+    const grouped = ROTACIONES.map((rotation) => ({
+      ...rotation,
+      exams: exams.filter((exam) => exam.rotacion === rotation.label),
+    })).map((rotation) => ({
+      ...rotation,
+      summary: getRotationStatus(rotation.exams),
+    }));
+    setRotationStates(grouped);
+  }
+
+  function returnToOverview() {
+    setCurrentExam(null);
+    setBaseQuestions([]);
+    setAdditionalQuestions([]);
+    setAnswers({});
+    setGrading({});
+    setCurrentIndex(0);
+    setPhase("base");
+    setCurrentText("");
+    setTimeLeft(EXAM_DURATION_SECONDS);
+    setTimeExpired(false);
+    setExitSubmitting(false);
+    setResultMeta(null);
+    setError("");
+    if (resident?.id) {
+      refreshRotationStates(resident.id).catch((err) => setError(err.message));
+    }
+    setScreen("overview");
+  }
+
   async function startExam(rotationState) {
     if (!resident) return;
 
@@ -658,20 +691,26 @@ export default function ResidentExamApp({ user, onLogout }) {
       const responses = await loadExamResponses(currentExam.id);
       const answerMap = Object.fromEntries(responses.map((item) => [item.pregunta_numero, item.respuesta_texto || ""]));
       const questionsToGrade = [...baseQuestions, ...additionalQuestions];
-      const gradeMap = {};
+      const gradingResults = await Promise.all(
+        questionsToGrade.map(async (question) => {
+          const result = await corregirPreguntaConIA(question, answerMap[question.numero] || "");
+          return [question.numero, result];
+        })
+      );
+      const gradeMap = Object.fromEntries(gradingResults);
 
-      for (const question of questionsToGrade) {
-        const result = await corregirPreguntaConIA(question, answerMap[question.numero] || "");
-        gradeMap[question.numero] = result;
-        await supabase
-          .from("examenes_respuestas")
-          .update({
-            puntaje_obtenido: result.puntaje_obtenido,
-            feedback_ia: `${renderFeedbackItems(result.items)}\n\n${result.feedback}`,
-          })
-          .eq("examen_id", currentExam.id)
-          .eq("pregunta_numero", question.numero);
-      }
+      await Promise.all(
+        questionsToGrade.map((question) =>
+          supabase
+            .from("examenes_respuestas")
+            .update({
+              puntaje_obtenido: gradeMap[question.numero].puntaje_obtenido,
+              feedback_ia: `${renderFeedbackItems(gradeMap[question.numero].items)}\n\n${gradeMap[question.numero].feedback}`,
+            })
+            .eq("examen_id", currentExam.id)
+            .eq("pregunta_numero", question.numero)
+        )
+      );
 
       const baseDomainStats = aggregateByDomain(baseQuestions, gradeMap);
       const baseObtained = Object.values(gradeMap)
@@ -747,6 +786,7 @@ export default function ResidentExamApp({ user, onLogout }) {
         additional: aggregateByDomain(additionalQuestions, gradeMap),
         base: aggregateByDomain(baseQuestions, gradeMap),
       });
+      await refreshRotationStates(resident?.id);
       setScreen("results");
     } catch (err) {
       setError(err.message);
@@ -791,7 +831,7 @@ export default function ResidentExamApp({ user, onLogout }) {
       <div style={{ minHeight: "100vh", background: "#f4f6f9", fontFamily: "'DM Sans', 'Segoe UI', sans-serif" }}>
         <div style={{ background: "#0f2744", color: "#fff", padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ fontWeight: 700, fontSize: 16 }}>🩺 ResidenciaMF · Resultados R2 + R3</div>
-          <button onClick={() => window.location.reload()} style={{ background: "none", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", borderRadius: 8, padding: "6px 14px", cursor: "pointer", fontSize: 13 }}>
+          <button onClick={returnToOverview} style={{ background: "none", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", borderRadius: 8, padding: "6px 14px", cursor: "pointer", fontSize: 13 }}>
             Volver a mis exámenes
           </button>
         </div>
