@@ -8,11 +8,18 @@ const ROTACIONES = [
   { key: "reumatologia", label: "Reumatología", bancoRotaciones: ["Reumatología"], allowAdditional: false },
 ];
 
-const TARGET_ANIO = "R2";
+const TARGET_ANIOS = ["R2", "R3"];
 const EXAM_DURATION_SECONDS = 60 * 60;
 const OPENROUTER_API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY || "";
 const OPENROUTER_SITE_URL = import.meta.env.VITE_OPENROUTER_SITE_URL || window.location.origin;
 const OPENROUTER_APP_NAME = import.meta.env.VITE_OPENROUTER_APP_NAME || "ResidenciaMF";
+const OPENROUTER_KEY_STORAGE = "residenciamf_openrouter_api_key";
+const SYSTEM_PROMPT = `Sos un evaluador médico experto en medicina familiar argentina. 
+Evaluá la respuesta del residente según la lista de cotejo provista. 
+Para cada ítem de la lista de cotejo indicá si fue cubierto (✓) o no (✗).
+Calculá el puntaje obtenido sobre el puntaje máximo.
+Devolvé un feedback constructivo y específico en español argentino, 
+en voseo. Sé preciso, justo y formativo. No seas punitivo.`;
 
 function extraerJson(texto) {
   const limpio = String(texto || "").replace(/```json|```/g, "").trim();
@@ -103,17 +110,22 @@ function timeLabel(seconds) {
   return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 }
 
+function getOpenRouterApiKey() {
+  return (
+    window.localStorage.getItem(OPENROUTER_KEY_STORAGE)?.trim() ||
+    OPENROUTER_API_KEY ||
+    ""
+  );
+}
+
 async function corregirPreguntaConIA(question, responseText) {
-  if (!OPENROUTER_API_KEY) {
+  const apiKey = getOpenRouterApiKey();
+
+  if (!apiKey) {
     throw new Error("Falta configurar VITE_OPENROUTER_API_KEY para corregir exámenes.");
   }
 
-  const prompt = `Sos un evaluador médico experto en medicina familiar argentina. 
-Evaluá la respuesta del residente según la lista de cotejo provista. 
-Para cada ítem de la lista de cotejo indicá si fue cubierto (✓) o no (✗).
-Calculá el puntaje obtenido sobre el puntaje máximo.
-Devolvé un feedback constructivo y específico en español argentino.
-Sé preciso, justo y formativo. No seas punitivo.
+  const prompt = `${SYSTEM_PROMPT}
 
 ENUNCIADO:
 ${question.enunciado}
@@ -145,7 +157,7 @@ Respondé solo JSON con esta forma:
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+      Authorization: `Bearer ${apiKey}`,
       "HTTP-Referer": OPENROUTER_SITE_URL,
       "X-Title": OPENROUTER_APP_NAME,
     },
@@ -226,7 +238,7 @@ async function fetchCandidateQuestions({ rotaciones, domain, excludeNumbers = []
   let query = supabase
     .from("banco_preguntas")
     .select("*")
-    .eq("anio", TARGET_ANIO)
+    .in("anio", TARGET_ANIOS)
     .in("rotacion", rotaciones)
     .eq("activa", true);
 
@@ -382,8 +394,13 @@ export default function ResidentExamApp({ user, onLogout }) {
   const [currentText, setCurrentText] = useState("");
   const [busy, setBusy] = useState(false);
   const [resultMeta, setResultMeta] = useState(null);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 960);
+  const [timeExpired, setTimeExpired] = useState(false);
+  const [exitSubmitting, setExitSubmitting] = useState(false);
   const timerRef = useRef(null);
   const finalizeExamRef = useRef(null);
+  const currentTextRef = useRef("");
+  const isFinalizingRef = useRef(false);
 
   const allQuestions = phase === "additional" ? additionalQuestions : baseQuestions;
   const currentQuestion = allQuestions[currentIndex] || null;
@@ -435,6 +452,7 @@ export default function ResidentExamApp({ user, onLogout }) {
       setTimeLeft((current) => {
         if (current <= 1) {
           window.clearInterval(timerRef.current);
+          setTimeExpired(true);
           finalizeExamRef.current?.({ timedOut: true });
           return 0;
         }
@@ -449,14 +467,27 @@ export default function ResidentExamApp({ user, onLogout }) {
     if (screen !== "exam") return undefined;
 
     const handleBeforeUnload = (event) => {
+      if (!isFinalizingRef.current) {
+        setExitSubmitting(true);
+        finalizeExamRef.current?.({ timedOut: false, exitAttempt: true });
+      }
       event.preventDefault();
       event.returnValue = "¿Seguro que querés salir? Tu examen se enviará con las respuestas completadas hasta este momento.";
       return event.returnValue;
     };
 
+    const handlePageHide = () => {
+      if (!isFinalizingRef.current) {
+        setExitSubmitting(true);
+        finalizeExamRef.current?.({ timedOut: false, exitAttempt: true });
+      }
+    };
+
     window.onbeforeunload = handleBeforeUnload;
+    window.addEventListener("pagehide", handlePageHide);
     return () => {
       window.onbeforeunload = null;
+      window.removeEventListener("pagehide", handlePageHide);
     };
   }, [screen]);
 
@@ -465,15 +496,25 @@ export default function ResidentExamApp({ user, onLogout }) {
   }, [answers, currentQuestion]);
 
   useEffect(() => {
+    currentTextRef.current = currentText;
+  }, [currentText]);
+
+  useEffect(() => {
     finalizeExamRef.current = finalizeExam;
   });
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 960);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   const domainProgress = useMemo(
     () => getDomainProgress(allQuestions, currentIndex, phase),
     [allQuestions, currentIndex, phase]
   );
 
-  const canContinue = currentText.trim().length > 0;
+  const canContinue = currentText.trim().length > 0 && !timeExpired && !exitSubmitting;
 
   async function startExam(rotationState) {
     if (!resident) return;
@@ -507,6 +548,8 @@ export default function ResidentExamApp({ user, onLogout }) {
         setCurrentIndex(resumeIndex);
         setPhase(resumePhase);
         setTimeLeft(Math.max(60, EXAM_DURATION_SECONDS - Math.floor((Date.now() - new Date(exam.iniciado_at).getTime()) / 1000)));
+        setTimeExpired(false);
+        setExitSubmitting(false);
         setScreen("exam");
         return;
       }
@@ -561,6 +604,8 @@ export default function ResidentExamApp({ user, onLogout }) {
       setCurrentIndex(0);
       setPhase("base");
       setTimeLeft(EXAM_DURATION_SECONDS);
+      setTimeExpired(false);
+      setExitSubmitting(false);
       setResultMeta(null);
       setScreen("exam");
     } catch (err) {
@@ -591,15 +636,23 @@ export default function ResidentExamApp({ user, onLogout }) {
     }
   }
 
-  async function finalizeExam({ timedOut }) {
-    if (!currentExam) return;
-    setScreen("grading");
+  async function finalizeExam({ timedOut, exitAttempt = false }) {
+    if (!currentExam || isFinalizingRef.current) return;
+    isFinalizingRef.current = true;
     window.clearInterval(timerRef.current);
 
+    if (!timedOut && !exitAttempt) {
+      setScreen("grading");
+    } else {
+      setTimeExpired(true);
+      setExitSubmitting(true);
+    }
+
     try {
-      if (currentQuestion && currentText.trim()) {
-        await upsertAnswer(currentExam.id, currentQuestion.numero, currentText);
-        setAnswers((current) => ({ ...current, [currentQuestion.numero]: currentText }));
+      const latestText = currentTextRef.current;
+      if (currentQuestion && latestText.trim()) {
+        await upsertAnswer(currentExam.id, currentQuestion.numero, latestText);
+        setAnswers((current) => ({ ...current, [currentQuestion.numero]: latestText }));
       }
 
       const responses = await loadExamResponses(currentExam.id);
@@ -659,6 +712,9 @@ export default function ResidentExamApp({ user, onLogout }) {
         setAdditionalQuestions(selectedAdditional);
         setCurrentIndex(0);
         setPhase("additional");
+        setTimeExpired(false);
+        setExitSubmitting(false);
+        isFinalizingRef.current = false;
         setScreen("exam");
         return;
       }
@@ -695,6 +751,9 @@ export default function ResidentExamApp({ user, onLogout }) {
     } catch (err) {
       setError(err.message);
       setScreen("overview");
+    } finally {
+      setExitSubmitting(false);
+      isFinalizingRef.current = false;
     }
   }
 
@@ -731,7 +790,7 @@ export default function ResidentExamApp({ user, onLogout }) {
     return (
       <div style={{ minHeight: "100vh", background: "#f4f6f9", fontFamily: "'DM Sans', 'Segoe UI', sans-serif" }}>
         <div style={{ background: "#0f2744", color: "#fff", padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ fontWeight: 700, fontSize: 16 }}>🩺 ResidenciaMF · Resultados R2</div>
+          <div style={{ fontWeight: 700, fontSize: 16 }}>🩺 ResidenciaMF · Resultados R2 + R3</div>
           <button onClick={() => window.location.reload()} style={{ background: "none", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", borderRadius: 8, padding: "6px 14px", cursor: "pointer", fontSize: 13 }}>
             Volver a mis exámenes
           </button>
@@ -822,7 +881,7 @@ export default function ResidentExamApp({ user, onLogout }) {
         <div style={{ background: "#0f2744", color: "#fff", padding: "16px 24px", position: "sticky", top: 0, zIndex: 10 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 24 }}>
             <div>
-              <div style={{ fontWeight: 700, fontSize: 16 }}>🩺 {currentExam?.rotacion} · Examen R2</div>
+              <div style={{ fontWeight: 700, fontSize: 16 }}>🩺 {currentExam?.rotacion} · Examen R2 + R3</div>
               <div style={{ fontSize: 12, opacity: 0.65 }}>
                 {phase === "additional" ? "Preguntas adicionales" : "Examen en curso"} · Pregunta {currentIndex + 1} de {allQuestions.length}
               </div>
@@ -837,9 +896,19 @@ export default function ResidentExamApp({ user, onLogout }) {
           </div>
         </div>
 
-        <div style={{ maxWidth: 1080, margin: "0 auto", padding: "24px", display: "grid", gridTemplateColumns: "1.3fr 0.7fr", gap: 20 }}>
-          <div style={{ display: "grid", gap: 16 }}>
-            <div style={{ background: "#fff", borderRadius: 18, border: "1px solid #e2e8f0", padding: 24, position: "sticky", top: 96 }}>
+        <div
+          style={{
+            maxWidth: 1180,
+            margin: "0 auto",
+            padding: "24px",
+            display: "grid",
+            gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1.45fr) minmax(280px, 0.65fr)",
+            gap: 20,
+            alignItems: "start",
+          }}
+        >
+          <div style={{ order: isMobile ? 2 : 1 }}>
+            <div style={{ background: "#fff", borderRadius: 18, border: "1px solid #e2e8f0", padding: 24 }}>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
                 <HeaderBadge text={currentQuestion.rotacion} color="#0f2744" background="#eef4fb" />
                 <HeaderBadge text={currentQuestion.dominio} color="#164e63" background="#daf5fb" />
@@ -860,36 +929,18 @@ export default function ResidentExamApp({ user, onLogout }) {
                   style={{ width: "100%", maxHeight: 320, objectFit: "contain", borderRadius: 14, border: "1px solid #dfe7f1", background: "#f8fbff" }}
                 />
               )}
-            </div>
-          </div>
 
-          <div style={{ display: "grid", gap: 16 }}>
-            <div style={{ background: "#fff", borderRadius: 18, border: "1px solid #e2e8f0", padding: 20 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#607284", marginBottom: 12 }}>
-                Progreso por dominios
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {domainProgress.map((item) => (
-                  <div
-                    key={item.key}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      borderRadius: 12,
-                      padding: "10px 12px",
-                      background: item.current ? "#eef6ff" : item.done ? "#f1fbf4" : "#f8fbff",
-                      border: `1px solid ${item.current ? "#c8dff5" : item.done ? "#d2ecd9" : "#e2e8f0"}`,
-                    }}
-                  >
-                    <span style={{ fontSize: 14 }}>{item.done ? "✓" : item.current ? "●" : "○"}</span>
-                    <span style={{ fontSize: 13, color: "#1a2e44" }}>{item.dominio}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div style={{ background: "#fff", borderRadius: 18, border: "1px solid #e2e8f0", padding: 20 }}>
+              <div style={{ height: 1, background: "#e2e8f0", margin: "18px 0" }} />
+              {timeExpired && (
+                <div style={{ marginBottom: 14, background: "#fff3f3", border: "1px solid #f0b8b8", borderRadius: 14, padding: "12px 14px", color: "#8f2d2d", fontSize: 14, fontWeight: 600 }}>
+                  Tiempo finalizado — enviando tu examen...
+                </div>
+              )}
+              {exitSubmitting && (
+                <div style={{ marginBottom: 14, background: "#fff8e8", border: "1px solid #f0d8a0", borderRadius: 14, padding: "12px 14px", color: "#6b4e00", fontSize: 14, fontWeight: 600 }}>
+                  Guardando tus respuestas para enviar el examen automáticamente...
+                </div>
+              )}
               <label style={{ fontSize: 12, fontWeight: 700, color: "#607284", display: "block", marginBottom: 10 }}>
                 Tu respuesta
               </label>
@@ -897,9 +948,11 @@ export default function ResidentExamApp({ user, onLogout }) {
                 value={currentText}
                 onChange={(event) => setCurrentText(event.target.value)}
                 placeholder="Escribí tu respuesta..."
-                rows={14}
+                rows={10}
+                disabled={timeExpired || exitSubmitting || busy}
                 style={{
                   width: "100%",
+                  minHeight: 180,
                   border: "1px solid #e2e8f0",
                   borderRadius: 12,
                   padding: "14px 16px",
@@ -910,6 +963,7 @@ export default function ResidentExamApp({ user, onLogout }) {
                   color: "#2d3748",
                   fontFamily: "inherit",
                   boxSizing: "border-box",
+                  background: timeExpired || exitSubmitting ? "#f8fafc" : "#fff",
                 }}
               />
               <button
@@ -929,8 +983,39 @@ export default function ResidentExamApp({ user, onLogout }) {
                   opacity: !canContinue || busy ? 0.65 : 1,
                 }}
               >
-                {busy ? "Guardando..." : "Confirmar y siguiente"}
+                {busy ? "Guardando..." : "Confirmar y siguiente →"}
               </button>
+            </div>
+          </div>
+
+          <div style={{ order: isMobile ? 1 : 2 }}>
+            <div style={{ background: "#fff", borderRadius: 18, border: "1px solid #e2e8f0", padding: 20, position: isMobile ? "static" : "sticky", top: 96 }}>
+              <div style={{ fontSize: 26, fontWeight: 800, color: timerColor, marginBottom: 8 }}>
+                ⏱ {timeLabel(timeLeft)}
+              </div>
+              <ProgressBar value={timerProgress} max={100} color={timerColor} height={10} />
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#607284", margin: "18px 0 12px" }}>
+                Progreso
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {domainProgress.map((item) => (
+                  <div
+                    key={item.key}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      borderRadius: 12,
+                      padding: "10px 12px",
+                      background: item.current ? "#eef6ff" : item.done ? "#f1fbf4" : "#f8fbff",
+                      border: `1px solid ${item.current ? "#c8dff5" : item.done ? "#d2ecd9" : "#e2e8f0"}`,
+                    }}
+                  >
+                    <span style={{ fontSize: 14 }}>{item.done ? "✓" : item.current ? "•" : "○"}</span>
+                    <span style={{ fontSize: 13, color: "#1a2e44" }}>{item.dominio}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -945,11 +1030,11 @@ export default function ResidentExamApp({ user, onLogout }) {
           <span style={{ fontSize: 20 }}>🩺</span>
           <div>
             <div style={{ fontWeight: 700, fontSize: 16 }}>ResidenciaMF</div>
-            <div style={{ fontSize: 12, opacity: 0.6 }}>Mis exámenes R2</div>
+            <div style={{ fontSize: 12, opacity: 0.6 }}>Mis exámenes R2 + R3</div>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <HeaderBadge text={TARGET_ANIO} color="#0f2744" background="#d9eefc" />
+          <HeaderBadge text={TARGET_ANIOS.join(" + ")} color="#0f2744" background="#d9eefc" />
           <button onClick={onLogout} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.6)", cursor: "pointer", fontSize: 13 }}>Salir</button>
         </div>
       </div>
