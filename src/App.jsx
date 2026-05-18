@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 import AdminBancoPreguntas from "./admin/AdminBancoPreguntas";
+import ExamenesPanel from "./admin/ExamenesPanel";
 import AdminLayout from "./admin/AdminLayout";
 import AdminPlaceholder from "./admin/AdminPlaceholder";
 import ResidentesBoard from "./admin/ResidentesBoard";
+import TableroPanel from "./admin/TableroPanel";
+import PracticeMode from "./exams/PracticeMode";
 import ResidentExamApp from "./exams/ResidentExamApp";
 
 // ── ORDEN DE DOMINIOS (flujo de consulta real) ───────────────────────────────
@@ -97,21 +100,27 @@ function isResidentPath(pathname) {
   return pathname === "/mis-examenes";
 }
 
+function isPracticePath(pathname) {
+  return pathname === "/modo-prueba";
+}
+
 function normalizePathname(pathname) {
-  if (pathname === "/admin") return "/admin/banco-preguntas";
+  if (pathname === "/admin") return "/admin/dashboard";
   if (pathname === "/docente") return "/docente/dashboard";
   return pathname;
 }
 
 const ADMIN_NAV_ITEMS = [
+  { path: "/admin/dashboard", label: "Tablero", icon: "📊" },
   { path: "/admin/banco-preguntas", label: "Banco de preguntas", icon: "📚" },
   { path: "/admin/examenes", label: "Exámenes", icon: "📝" },
   { path: "/admin/residentes", label: "Residentes", icon: "👥" },
 ];
 
 const DOCENTE_NAV_ITEMS = [
-  { path: "/docente/dashboard", label: "Dashboard", icon: "📊" },
+  { path: "/docente/dashboard", label: "Tablero", icon: "📊" },
   { path: "/docente/residentes", label: "Residentes", icon: "👥" },
+  { path: "/modo-prueba", label: "Modo prueba", icon: "🧪" },
 ];
 
 function initialsFromName(value) {
@@ -530,6 +539,7 @@ export default function App() {
   const [pathname, setPathname] = useState(() =>
     normalizePathname(getCurrentPathname())
   );
+  const [residentFocus, setResidentFocus] = useState(null);
 
   useEffect(() => {
     const construirUsuario = (supabaseUser) => {
@@ -589,7 +599,7 @@ export default function App() {
 
     if (usuario.rol === "admin") {
       if (pathname === "/" || pathname === "/login" || isDocentePath(pathname) || isResidentPath(pathname) || pathname === "/pendiente-autorizacion") {
-        setPathname("/admin/banco-preguntas");
+        setPathname("/admin/dashboard");
       }
       return;
     }
@@ -622,30 +632,45 @@ export default function App() {
     setPathname(normalized);
   };
 
+  const openResidentFromDashboard = (residente) => {
+    setResidentFocus(residente);
+    if (usuario?.rol === "admin") {
+      navigate("/admin/residentes");
+    } else if (usuario?.rol === "docente") {
+      navigate("/docente/residentes");
+    }
+  };
+
   const cerrarSesion = async () => {
     await supabase.auth.signOut();
     setUsuario(null);
+    setResidentFocus(null);
     navigate("/login");
   };
 
   const renderAdminSection = () => {
+    if (pathname === "/modo-prueba") {
+      return <PracticeMode user={usuario} onExit={() => navigate("/admin/dashboard")} />;
+    }
+
     const adminPath = normalizePathname(pathname);
 
     let content = null;
 
-    if (adminPath === "/admin/banco-preguntas") {
+    if (adminPath === "/admin/dashboard") {
+      content = <TableroPanel onOpenResident={openResidentFromDashboard} />;
+    } else if (adminPath === "/admin/banco-preguntas") {
       content = <AdminBancoPreguntas />;
     } else if (adminPath === "/admin/examenes") {
+      content = <ExamenesPanel />;
+    } else if (adminPath === "/admin/residentes") {
       content = (
-        <AdminPlaceholder
-          title="Exámenes"
-          description="Espacio preparado para la administración futura de exámenes y convocatorias."
+        <ResidentesBoard
+          initialSelectedResidente={residentFocus}
         />
       );
-    } else if (adminPath === "/admin/residentes") {
-      content = <ResidentesBoard />;
     } else {
-      content = <AdminBancoPreguntas />;
+      content = <TableroPanel onOpenResident={openResidentFromDashboard} />;
     }
 
     return (
@@ -670,15 +695,20 @@ export default function App() {
 
     let content = null;
 
+    if (docentePath === "/modo-prueba") {
+      return <PracticeMode user={usuario} onExit={() => navigate("/docente/dashboard")} />;
+    }
+
     if (docentePath === "/docente/residentes") {
       content = (
         <ResidentesBoard
           title="Residentes"
           description="Vista académica de residentes en modo lectura. No se habilitan ediciones desde el perfil docente."
+          initialSelectedResidente={residentFocus}
         />
       );
     } else {
-      content = <DocenteDashboard />;
+      content = <TableroPanel onOpenResident={openResidentFromDashboard} readOnlyLabel="Modo lectura" />;
     }
 
     return (

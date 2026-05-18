@@ -394,6 +394,7 @@ function Field({ label, value }) {
 export default function ResidentesBoard({
   title = "Residentes",
   description = "Tablero de residentes en modo vista, conectado a Supabase.",
+  initialSelectedResidente = null,
 }) {
   const [filters, setFilters] = useState(BASE_FILTERS);
   const [residentes, setResidentes] = useState([]);
@@ -442,6 +443,11 @@ export default function ResidentesBoard({
 
     fetchResidentes();
   }, [filters]);
+
+  useEffect(() => {
+    if (!initialSelectedResidente) return;
+    setSelectedResidente(initialSelectedResidente);
+  }, [initialSelectedResidente]);
 
   useEffect(() => {
     let active = true;
