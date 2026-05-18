@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "seed:banco": "node scripts/seed-banco.js",
+    "actualizar:checklists": "node scripts/actualizar-checklists.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.4",
