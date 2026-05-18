@@ -120,7 +120,9 @@ function parseHeader(header) {
 }
 
 function parseStandardChecklistFile(markdown, sourceName) {
-  return parseQuestionSections(markdown).map(({ header, body }) => {
+  return parseQuestionSections(markdown)
+    .filter(({ header }) => /^N°\s*\d+/i.test(header))
+    .map(({ header, body }) => {
     const parsedHeader = parseHeader(header);
     const numberMatch = parsedHeader.rawId.match(/N°\s*(\d+)/i);
     if (!numberMatch) {
@@ -150,7 +152,7 @@ function parseStandardChecklistFile(markdown, sourceName) {
       puntaje_sugerido: parsePuntajeTotal(body),
       fuente: sourceName,
     };
-  });
+    });
 }
 
 function parseMFChecklistFile(markdown, sourceName) {
@@ -213,9 +215,11 @@ async function upsertInBatches(supabase, records, labelBuilder) {
       console.log(`${labelBuilder(record)}...`);
     }
 
+    const payload = batch.map(({ codigo_origen, ...record }) => record);
+
     const { error } = await supabase
       .from("banco_preguntas")
-      .upsert(batch, { onConflict: "numero" });
+      .upsert(payload, { onConflict: "numero" });
 
     if (error) {
       throw new Error(`Falló el upsert del lote ${index + 1}: ${error.message}`);
