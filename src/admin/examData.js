@@ -1,4 +1,5 @@
 import { supabase } from "../supabase";
+import { buildQuestionSteps, stepKey } from "../exams/questionFlow";
 
 export function formatDateTime(value) {
   if (!value) return "—";
@@ -139,23 +140,29 @@ export async function loadExamDataset() {
     return acc;
   }, {});
   const answersByExamQuestion = (examAnswers || []).reduce((acc, item) => {
-    acc[`${item.examen_id}:${item.pregunta_numero}`] = item;
+    acc[`${item.examen_id}:${stepKey(item.pregunta_numero, item.subpregunta_indice || 0)}`] = item;
     return acc;
   }, {});
 
   const enrichedExams = examRows.map((exam) => {
-    const questionDetails = (assignedByExam[exam.id] || []).map((assigned) => {
-      const bankQuestion = questionsByNumber.get(assigned.pregunta_numero);
-      const answer = answersByExamQuestion[`${exam.id}:${assigned.pregunta_numero}`];
+    const assignedQuestions = (assignedByExam[exam.id] || []).map((assigned) => ({
+      ...questionsByNumber.get(assigned.pregunta_numero),
+      es_adicional: assigned.es_adicional,
+      orden: assigned.orden,
+    }));
+    const questionDetails = buildQuestionSteps(assignedQuestions, "detail").map((step) => {
+      const answer = answersByExamQuestion[`${exam.id}:${step.key}`];
       return {
-        pregunta_numero: assigned.pregunta_numero,
-        orden: assigned.orden,
-        es_adicional: assigned.es_adicional,
-        enunciado: bankQuestion?.enunciado || "",
-        dominio: bankQuestion?.dominio || "Integrador",
-        puntaje_maximo: Number(bankQuestion?.puntaje_sugerido || 0),
-        lista_cotejo: bankQuestion?.lista_cotejo || "",
-        imagen_url: bankQuestion?.imagen_url || null,
+        pregunta_numero: step.question.numero,
+        subpregunta_indice: step.subIndex,
+        orden: step.order,
+        es_adicional: step.question.es_adicional,
+        enunciado: step.caseText || step.question.enunciado || "",
+        subpregunta_texto: step.prompt || "",
+        dominio: step.question.dominio || "Integrador",
+        puntaje_maximo: Number(step.puntajeMaximo || 0),
+        lista_cotejo: step.checklistItem || "",
+        imagen_url: step.question.imagen_url || null,
         respuesta_texto: answer?.respuesta_texto || "",
         puntaje_obtenido: answer?.puntaje_obtenido ?? null,
         feedback_ia: answer?.feedback_ia || "",

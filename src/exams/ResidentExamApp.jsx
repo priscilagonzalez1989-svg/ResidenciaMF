@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../supabase";
+import { buildQuestionSteps, stepKey } from "./questionFlow";
 
 const ROTACIONES = [
   { key: "medicina-familiar", label: "Medicina Familiar", bancoRotaciones: ["Medicina Familiar"], allowAdditional: true },
@@ -94,11 +95,11 @@ function getRotationStatus(exams) {
   return { label: "Rendido", action: "Rendido", canStart: false, mode: "done", lastScore, attempts, previousExam: last };
 }
 
-function getDomainProgress(questions, currentIndex, phaseLabel) {
-  if (!questions.length) return [];
-  return questions.map((question, index) => ({
-    key: `${phaseLabel}-${question.numero}-${index}`,
-    dominio: question.dominio || "Integrador",
+function getDomainProgress(steps, currentIndex) {
+  if (!steps.length) return [];
+  return steps.map((step, index) => ({
+    key: `${step.phase}-${step.question.numero}-${step.subIndex}-${index}`,
+    dominio: step.question.dominio || "Integrador",
     done: index < currentIndex,
     current: index === currentIndex,
   }));
@@ -111,14 +112,10 @@ function timeLabel(seconds) {
 }
 
 function getOpenRouterApiKey() {
-  return (
-    window.localStorage.getItem(OPENROUTER_KEY_STORAGE)?.trim() ||
-    OPENROUTER_API_KEY ||
-    ""
-  );
+  return window.localStorage.getItem(OPENROUTER_KEY_STORAGE)?.trim() || OPENROUTER_API_KEY || "";
 }
 
-async function corregirPreguntaConIA(question, responseText) {
+async function corregirPasoConIA(step, responseText) {
   const apiKey = getOpenRouterApiKey();
 
   if (!apiKey) {
@@ -127,14 +124,17 @@ async function corregirPreguntaConIA(question, responseText) {
 
   const prompt = `${SYSTEM_PROMPT}
 
-ENUNCIADO:
-${question.enunciado}
+CASO CLÍNICO:
+${step.caseText || step.question.enunciado}
+
+SUB-PREGUNTA:
+${step.prompt || step.question.enunciado}
 
 LISTA DE COTEJO:
-${question.lista_cotejo}
+${step.checklistItem || step.question.lista_cotejo}
 
 PUNTAJE MÁXIMO:
-${question.puntaje_sugerido}
+${step.puntajeMaximo}
 
 RESPUESTA DEL RESIDENTE:
 ${responseText || "(sin respuesta)"}
@@ -176,18 +176,12 @@ Respondé solo JSON con esta forma:
   }
 
   const data = await response.json();
-  const content = data.choices?.[0]?.message?.content || "";
-  return extraerJson(content);
+  return extraerJson(data.choices?.[0]?.message?.content || "");
 }
 
 async function fetchResidentByUser(user) {
   const normalizedEmail = String(user.email || "").trim().toLowerCase();
-  const { data, error } = await supabase
-    .from("residentes")
-    .select("*")
-    .ilike("email", normalizedEmail)
-    .maybeSingle();
-
+  const { data, error } = await supabase.from("residentes").select("*").ilike("email", normalizedEmail).maybeSingle();
   if (error) throw error;
 
   if (data && (data.user_id !== user.id || data.email !== normalizedEmail)) {
@@ -205,22 +199,13 @@ async function fetchResidentByUser(user) {
 }
 
 async function fetchRotationExams(residenteId) {
-  const { data, error } = await supabase
-    .from("examenes")
-    .select("*")
-    .eq("residente_id", residenteId)
-    .order("created_at", { ascending: false });
-
+  const { data, error } = await supabase.from("examenes").select("*").eq("residente_id", residenteId).order("created_at", { ascending: false });
   if (error) throw error;
   return data || [];
 }
 
 async function fetchSeenQuestionNumbers(residenteId) {
-  const { data: examenes, error } = await supabase
-    .from("examenes")
-    .select("id")
-    .eq("residente_id", residenteId);
-
+  const { data: examenes, error } = await supabase.from("examenes").select("id").eq("residente_id", residenteId);
   if (error) throw error;
   if (!examenes?.length) return [];
 
@@ -298,11 +283,7 @@ async function loadExamQuestions(examenId) {
   const numeros = (asignadas || []).map((item) => item.pregunta_numero);
   if (!numeros.length) return [];
 
-  const { data: questions, error: questionsError } = await supabase
-    .from("banco_preguntas")
-    .select("*")
-    .in("numero", numeros);
-
+  const { data: questions, error: questionsError } = await supabase.from("banco_preguntas").select("*").in("numero", numeros);
   if (questionsError) throw questionsError;
 
   const byNumero = new Map((questions || []).map((question) => [question.numero, question]));
@@ -317,43 +298,43 @@ async function loadExamResponses(examenId) {
   const { data, error } = await supabase
     .from("examenes_respuestas")
     .select("*")
-    .eq("examen_id", examenId);
+    .eq("examen_id", examenId)
+    .order("subpregunta_indice", { ascending: true });
   if (error) throw error;
   return data || [];
 }
 
-async function upsertAnswer(examenId, questionNumber, responseText) {
+async function upsertAnswer(examenId, step, responseText) {
   const { error } = await supabase
     .from("examenes_respuestas")
     .upsert(
       {
         examen_id: examenId,
-        pregunta_numero: questionNumber,
+        pregunta_numero: step.question.numero,
+        subpregunta_indice: step.subIndex,
+        subpregunta_texto: step.prompt || null,
         respuesta_texto: responseText,
         respondida_at: new Date().toISOString(),
       },
-      { onConflict: "examen_id,pregunta_numero" }
+      { onConflict: "examen_id,pregunta_numero,subpregunta_indice" }
     );
 
   if (error) throw error;
 }
 
 async function updateExamResult(examenId, payload) {
-  const { error } = await supabase
-    .from("examenes")
-    .update(payload)
-    .eq("id", examenId);
+  const { error } = await supabase.from("examenes").update(payload).eq("id", examenId);
   if (error) throw error;
 }
 
-function aggregateByDomain(questions, gradingMap) {
+function aggregateByDomain(steps, gradingMap) {
   const map = {};
-  questions.forEach((question) => {
-    const grade = gradingMap[question.numero];
-    const key = question.dominio || "Integrador";
+  steps.forEach((step) => {
+    const grade = gradingMap[step.key];
+    const key = step.question.dominio || "Integrador";
     if (!map[key]) map[key] = { dominio: key, obtenido: 0, maximo: 0 };
     map[key].obtenido += Number(grade?.puntaje_obtenido || 0);
-    map[key].maximo += Number(grade?.puntaje_maximo || question.puntaje_sugerido || 0);
+    map[key].maximo += Number(grade?.puntaje_maximo || step.puntajeMaximo || 0);
   });
   return Object.values(map).map((item) => ({
     ...item,
@@ -372,9 +353,16 @@ function notifyBankExhausted(rotationLabel) {
 
 function renderFeedbackItems(items) {
   if (!items?.length) return "Sin detalle de cotejo.";
-  return items
-    .map((item) => `${item.marca || (item.cubierto ? "✓" : "✗")} ${item.descripcion}`)
-    .join("\n");
+  return items.map((item) => `${item.marca || (item.cubierto ? "✓" : "✗")} ${item.descripcion}`).join("\n");
+}
+
+function buildAnswerMap(rows) {
+  return Object.fromEntries(rows.map((item) => [stepKey(item.pregunta_numero, item.subpregunta_indice || 0), item.respuesta_texto || ""]));
+}
+
+function firstUnansweredIndex(steps, answersMap) {
+  const index = steps.findIndex((step) => !String(answersMap[step.key] || "").trim());
+  return index === -1 ? Math.max(steps.length - 1, 0) : index;
 }
 
 export default function ResidentExamApp({ user, onLogout }) {
@@ -403,7 +391,9 @@ export default function ResidentExamApp({ user, onLogout }) {
   const isFinalizingRef = useRef(false);
 
   const allQuestions = phase === "additional" ? additionalQuestions : baseQuestions;
-  const currentQuestion = allQuestions[currentIndex] || null;
+  const allSteps = useMemo(() => buildQuestionSteps(allQuestions, phase), [allQuestions, phase]);
+  const currentStep = allSteps[currentIndex] || null;
+  const currentQuestion = currentStep?.question || null;
 
   useEffect(() => {
     let active = true;
@@ -414,21 +404,14 @@ export default function ResidentExamApp({ user, onLogout }) {
       try {
         const residente = await fetchResidentByUser(user);
         if (!active) return;
-        if (!residente) {
-          throw new Error("Tu cuenta de residente todavía no está vinculada a un registro en la tabla residentes.");
-        }
+        if (!residente) throw new Error("Tu cuenta de residente todavía no está vinculada a un registro en la tabla residentes.");
         setResident(residente);
         const exams = await fetchRotationExams(residente.id);
         if (!active) return;
-
         const grouped = ROTACIONES.map((rotation) => ({
           ...rotation,
           exams: exams.filter((exam) => exam.rotacion === rotation.label),
-        })).map((rotation) => ({
-          ...rotation,
-          summary: getRotationStatus(rotation.exams),
-        }));
-
+        })).map((rotation) => ({ ...rotation, summary: getRotationStatus(rotation.exams) }));
         setRotationStates(grouped);
       } catch (err) {
         if (!active) return;
@@ -439,7 +422,6 @@ export default function ResidentExamApp({ user, onLogout }) {
     };
 
     bootstrap();
-
     return () => {
       active = false;
     };
@@ -492,8 +474,8 @@ export default function ResidentExamApp({ user, onLogout }) {
   }, [screen]);
 
   useEffect(() => {
-    setCurrentText(currentQuestion ? answers[currentQuestion.numero] || "" : "");
-  }, [answers, currentQuestion]);
+    setCurrentText(currentStep ? answers[currentStep.key] || "" : "");
+  }, [answers, currentStep]);
 
   useEffect(() => {
     currentTextRef.current = currentText;
@@ -509,11 +491,7 @@ export default function ResidentExamApp({ user, onLogout }) {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  const domainProgress = useMemo(
-    () => getDomainProgress(allQuestions, currentIndex, phase),
-    [allQuestions, currentIndex, phase]
-  );
-
+  const domainProgress = useMemo(() => getDomainProgress(allSteps, currentIndex), [allSteps, currentIndex]);
   const canContinue = currentText.trim().length > 0 && !timeExpired && !exitSubmitting;
 
   async function refreshRotationStates(residenteId = resident?.id) {
@@ -522,10 +500,7 @@ export default function ResidentExamApp({ user, onLogout }) {
     const grouped = ROTACIONES.map((rotation) => ({
       ...rotation,
       exams: exams.filter((exam) => exam.rotacion === rotation.label),
-    })).map((rotation) => ({
-      ...rotation,
-      summary: getRotationStatus(rotation.exams),
-    }));
+    })).map((rotation) => ({ ...rotation, summary: getRotationStatus(rotation.exams) }));
     setRotationStates(grouped);
   }
 
@@ -551,27 +526,20 @@ export default function ResidentExamApp({ user, onLogout }) {
 
   async function startExam(rotationState) {
     if (!resident) return;
-
     setBusy(true);
     setError("");
 
     try {
       if (rotationState.summary.mode === "resume" && rotationState.summary.currentExam) {
         const exam = rotationState.summary.currentExam;
-        const [questions, responses] = await Promise.all([
-          loadExamQuestions(exam.id),
-          loadExamResponses(exam.id),
-        ]);
-
-        const answersMap = Object.fromEntries((responses || []).map((item) => [item.pregunta_numero, item.respuesta_texto || ""]));
-        const firstUnanswered = questions.findIndex((question) => !answersMap[question.numero]);
+        const [questions, responses] = await Promise.all([loadExamQuestions(exam.id), loadExamResponses(exam.id)]);
+        const answersMap = buildAnswerMap(responses || []);
         const splitBase = questions.filter((question) => !question.es_adicional);
         const splitAdditional = questions.filter((question) => question.es_adicional);
-        const resumePhase = firstUnanswered >= splitBase.length && splitAdditional.length ? "additional" : "base";
-        const resumeQuestions = resumePhase === "additional" ? splitAdditional : splitBase;
-        const resumeIndex = resumePhase === "additional"
-          ? Math.max(0, splitAdditional.findIndex((question) => !answersMap[question.numero]))
-          : Math.max(0, firstUnanswered === -1 ? splitBase.length - 1 : firstUnanswered);
+        const baseSteps = buildQuestionSteps(splitBase, "base");
+        const additionalSteps = buildQuestionSteps(splitAdditional, "additional");
+        const resumePhase = firstUnansweredIndex(baseSteps, answersMap) >= baseSteps.length - 1 && splitAdditional.length && baseSteps.every((step) => String(answersMap[step.key] || "").trim()) ? "additional" : "base";
+        const resumeIndex = resumePhase === "additional" ? firstUnansweredIndex(additionalSteps, answersMap) : firstUnansweredIndex(baseSteps, answersMap);
 
         setCurrentExam(exam);
         setBaseQuestions(splitBase);
@@ -594,32 +562,16 @@ export default function ResidentExamApp({ user, onLogout }) {
       if (rotationState.summary.mode === "recovery" && rotationState.summary.previousExam) {
         const previousQuestions = await loadExamQuestions(rotationState.summary.previousExam.id);
         const repeatedCount = Math.min(1, previousQuestions.length);
-        const repeated = shuffle(previousQuestions).slice(0, repeatedCount).map((question) => ({
-          ...question,
-          es_adicional: false,
-        }));
-
+        const repeated = shuffle(previousQuestions).slice(0, repeatedCount).map((question) => ({ ...question, es_adicional: false }));
         const exclude = [...new Set([...seenNumbers, ...repeated.map((question) => question.numero)])];
-        const freshCandidates = await fetchCandidateQuestions({
-          rotaciones: rotationState.bancoRotaciones,
-          excludeNumbers: exclude,
-        });
-
+        const freshCandidates = await fetchCandidateQuestions({ rotaciones: rotationState.bancoRotaciones, excludeNumbers: exclude });
         const fresh = freshCandidates.slice(0, desiredCount - repeated.length);
-        if (fresh.length < desiredCount - repeated.length) {
-          throw new Error(notifyBankExhausted(rotationState.label));
-        }
-
+        if (fresh.length < desiredCount - repeated.length) throw new Error(notifyBankExhausted(rotationState.label));
         selectedQuestions = shuffle([...repeated, ...fresh]).slice(0, desiredCount);
       } else {
-        const candidates = await fetchCandidateQuestions({
-          rotaciones: rotationState.bancoRotaciones,
-          excludeNumbers: seenNumbers,
-        });
+        const candidates = await fetchCandidateQuestions({ rotaciones: rotationState.bancoRotaciones, excludeNumbers: seenNumbers });
         selectedQuestions = candidates.slice(0, desiredCount);
-        if (selectedQuestions.length < desiredCount) {
-          throw new Error(notifyBankExhausted(rotationState.label));
-        }
+        if (selectedQuestions.length < desiredCount) throw new Error(notifyBankExhausted(rotationState.label));
       }
 
       const exam = await createExamWithQuestions({
@@ -649,14 +601,14 @@ export default function ResidentExamApp({ user, onLogout }) {
   }
 
   async function confirmAndNext() {
-    if (!currentQuestion || !currentExam || busy) return;
+    if (!currentStep || !currentExam || busy) return;
 
     setBusy(true);
     try {
-      await upsertAnswer(currentExam.id, currentQuestion.numero, currentText);
-      setAnswers((current) => ({ ...current, [currentQuestion.numero]: currentText }));
+      await upsertAnswer(currentExam.id, currentStep, currentText);
+      setAnswers((current) => ({ ...current, [currentStep.key]: currentText }));
 
-      if (currentIndex < allQuestions.length - 1) {
+      if (currentIndex < allSteps.length - 1) {
         setCurrentIndex((current) => current + 1);
         return;
       }
@@ -674,49 +626,49 @@ export default function ResidentExamApp({ user, onLogout }) {
     isFinalizingRef.current = true;
     window.clearInterval(timerRef.current);
 
-    if (!timedOut && !exitAttempt) {
-      setScreen("grading");
-    } else {
+    if (!timedOut && !exitAttempt) setScreen("grading");
+    else {
       setTimeExpired(true);
       setExitSubmitting(true);
     }
 
     try {
       const latestText = currentTextRef.current;
-      if (currentQuestion && latestText.trim()) {
-        await upsertAnswer(currentExam.id, currentQuestion.numero, latestText);
-        setAnswers((current) => ({ ...current, [currentQuestion.numero]: latestText }));
+      if (currentStep && latestText.trim()) {
+        await upsertAnswer(currentExam.id, currentStep, latestText);
+        setAnswers((current) => ({ ...current, [currentStep.key]: latestText }));
       }
 
       const responses = await loadExamResponses(currentExam.id);
-      const answerMap = Object.fromEntries(responses.map((item) => [item.pregunta_numero, item.respuesta_texto || ""]));
+      const answerMap = buildAnswerMap(responses);
       const questionsToGrade = [...baseQuestions, ...additionalQuestions];
+      const stepsToGrade = buildQuestionSteps(questionsToGrade, "grading");
+
       const gradingResults = await Promise.all(
-        questionsToGrade.map(async (question) => {
-          const result = await corregirPreguntaConIA(question, answerMap[question.numero] || "");
-          return [question.numero, result];
+        stepsToGrade.map(async (step) => {
+          const result = await corregirPasoConIA(step, answerMap[step.key] || "");
+          return [step.key, result];
         })
       );
       const gradeMap = Object.fromEntries(gradingResults);
 
       await Promise.all(
-        questionsToGrade.map((question) =>
+        stepsToGrade.map((step) =>
           supabase
             .from("examenes_respuestas")
             .update({
-              puntaje_obtenido: gradeMap[question.numero].puntaje_obtenido,
-              feedback_ia: `${renderFeedbackItems(gradeMap[question.numero].items)}\n\n${gradeMap[question.numero].feedback}`,
+              puntaje_obtenido: gradeMap[step.key].puntaje_obtenido,
+              feedback_ia: `${renderFeedbackItems(gradeMap[step.key].items)}\n\n${gradeMap[step.key].feedback}`,
             })
             .eq("examen_id", currentExam.id)
-            .eq("pregunta_numero", question.numero)
+            .eq("pregunta_numero", step.question.numero)
+            .eq("subpregunta_indice", step.subIndex)
         )
       );
 
-      const baseDomainStats = aggregateByDomain(baseQuestions, gradeMap);
-      const baseObtained = Object.values(gradeMap)
-        .filter((_value, keyIndex) => keyIndex < baseQuestions.length)
-        .reduce((sum, item) => sum + Number(item?.puntaje_obtenido || 0), 0);
-      const baseMax = baseQuestions.reduce((sum, question) => sum + Number(question.puntaje_sugerido || 0), 0);
+      const baseSteps = buildQuestionSteps(baseQuestions, "base");
+      const additionalSteps = buildQuestionSteps(additionalQuestions, "additional");
+      const baseDomainStats = aggregateByDomain(baseSteps, gradeMap);
 
       if (currentExam.rotacion === "Medicina Familiar" && additionalQuestions.length === 0) {
         const weakestDomain = getWeakestDomain(baseDomainStats);
@@ -733,9 +685,7 @@ export default function ResidentExamApp({ user, onLogout }) {
           es_adicional: true,
         }));
 
-        if (selectedAdditional.length < 5) {
-          throw new Error(notifyBankExhausted("Medicina Familiar / Guardia"));
-        }
+        if (selectedAdditional.length < 5) throw new Error(notifyBankExhausted("Medicina Familiar / Guardia"));
 
         const { error: extraInsertError } = await supabase.from("examenes_preguntas").insert(
           selectedAdditional.map((question) => ({
@@ -758,14 +708,8 @@ export default function ResidentExamApp({ user, onLogout }) {
         return;
       }
 
-      const totalObtained = questionsToGrade.reduce(
-        (sum, question) => sum + Number(gradeMap[question.numero]?.puntaje_obtenido || 0),
-        0
-      );
-      const totalMax = questionsToGrade.reduce(
-        (sum, question) => sum + Number(gradeMap[question.numero]?.puntaje_maximo || question.puntaje_sugerido || 0),
-        0
-      );
+      const totalObtained = stepsToGrade.reduce((sum, step) => sum + Number(gradeMap[step.key]?.puntaje_obtenido || 0), 0);
+      const totalMax = stepsToGrade.reduce((sum, step) => sum + Number(gradeMap[step.key]?.puntaje_maximo || step.puntajeMaximo || 0), 0);
       const approved = totalMax ? (totalObtained / totalMax) * 100 >= 50 : false;
 
       await updateExamResult(currentExam.id, {
@@ -782,9 +726,7 @@ export default function ResidentExamApp({ user, onLogout }) {
         totalMax,
         approved,
         timedOut,
-        domains: aggregateByDomain(questionsToGrade, gradeMap),
-        additional: aggregateByDomain(additionalQuestions, gradeMap),
-        base: aggregateByDomain(baseQuestions, gradeMap),
+        domains: aggregateByDomain(stepsToGrade, gradeMap),
       });
       await refreshRotationStates(resident?.id);
       setScreen("results");
@@ -799,7 +741,8 @@ export default function ResidentExamApp({ user, onLogout }) {
 
   const timerColor = timeLeft <= 10 * 60 ? "#e05454" : "#4a9fd4";
   const timerProgress = (timeLeft / EXAM_DURATION_SECONDS) * 100;
-  const mobileFooterHeight = 90;
+  const resultBaseSteps = useMemo(() => buildQuestionSteps(baseQuestions, "results-base"), [baseQuestions]);
+  const resultAdditionalSteps = useMemo(() => buildQuestionSteps(additionalQuestions, "results-additional"), [additionalQuestions]);
 
   if (loading) {
     return (
@@ -818,9 +761,7 @@ export default function ResidentExamApp({ user, onLogout }) {
         <div style={{ textAlign: "center", color: "#fff" }}>
           <div style={{ fontSize: 48, marginBottom: 24 }}>⏳</div>
           <h2 style={{ fontSize: 24, fontWeight: 700, margin: "0 0 12px" }}>Analizando tu examen...</h2>
-          <p style={{ color: "rgba(255,255,255,0.65)", fontSize: 14, margin: 0 }}>
-            Estamos corrigiendo cada respuesta con IA y armando tu devolución.
-          </p>
+          <p style={{ color: "rgba(255,255,255,0.65)", fontSize: 14, margin: 0 }}>Estamos corrigiendo cada respuesta con IA y armando tu devolución.</p>
         </div>
       </div>
     );
@@ -838,14 +779,9 @@ export default function ResidentExamApp({ user, onLogout }) {
         </div>
 
         <div style={{ maxWidth: 960, margin: "0 auto", padding: "28px 24px", display: "grid", gap: 18 }}>
-          <div style={{
-            background: resultMeta.approved ? "linear-gradient(135deg, #1a6b4a, #2ecc71)" : "linear-gradient(135deg, #7a1f1f, #e05454)",
-            borderRadius: 20, padding: "32px", color: "#fff", textAlign: "center",
-          }}>
+          <div style={{ background: resultMeta.approved ? "linear-gradient(135deg, #1a6b4a, #2ecc71)" : "linear-gradient(135deg, #7a1f1f, #e05454)", borderRadius: 20, padding: "32px", color: "#fff", textAlign: "center" }}>
             <div style={{ fontSize: 52, fontWeight: 800, lineHeight: 1 }}>{resultMeta.totalObtained}/{resultMeta.totalMax}</div>
-            <div style={{ fontSize: 18, opacity: 0.9, marginTop: 6 }}>
-              {totalPercentage}% · {resultMeta.approved ? "Aprobado ✅" : "Recuperatorio disponible 🔄"}
-            </div>
+            <div style={{ fontSize: 18, opacity: 0.9, marginTop: 6 }}>{totalPercentage}% · {resultMeta.approved ? "Aprobado ✅" : "Recuperatorio disponible 🔄"}</div>
           </div>
 
           <div style={{ background: "#fff", borderRadius: 18, border: "1px solid #e2e8f0", padding: 24 }}>
@@ -863,18 +799,20 @@ export default function ResidentExamApp({ user, onLogout }) {
             </div>
           </div>
 
-          {baseQuestions.map((question) => {
-            const result = grading[question.numero];
+          {resultBaseSteps.map((step) => {
+            const result = grading[step.key];
             return (
-              <div key={`${question.numero}-${question.orden}`} style={{ background: "#fff", borderRadius: 16, padding: "24px 28px", border: "1px solid #e2e8f0" }}>
+              <div key={`${step.key}-${step.question.orden}`} style={{ background: "#fff", borderRadius: 16, padding: "24px 28px", border: "1px solid #e2e8f0" }}>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-                  <HeaderBadge text={question.rotacion} color="#0f2744" background="#eef4fb" />
-                  <HeaderBadge text={question.dominio} color="#164e63" background="#daf5fb" />
-                  <HeaderBadge text={`Pregunta ${question.orden}`} color="#6b4b00" background="#fff2cf" />
+                  <HeaderBadge text={step.question.rotacion} color="#0f2744" background="#eef4fb" />
+                  <HeaderBadge text={step.question.dominio} color="#164e63" background="#daf5fb" />
+                  <HeaderBadge text={`Pregunta ${step.question.orden}`} color="#6b4b00" background="#fff2cf" />
+                  {step.hasSubQuestions && <HeaderBadge text={`Sub ${String.fromCharCode(97 + step.subIndex)})`} color="#506478" background="#f4f7fb" />}
                 </div>
-                <div style={{ fontSize: 14, color: "#1a2e44", lineHeight: 1.7, marginBottom: 14 }}>{question.enunciado}</div>
+                <div style={{ fontSize: 14, color: "#1a2e44", lineHeight: 1.7, marginBottom: 10 }}>{step.caseText || step.question.enunciado}</div>
+                {step.prompt && <div style={{ fontSize: 15, color: "#0f2744", fontWeight: 700, marginBottom: 14 }}>{step.prompt}</div>}
                 <div style={{ fontSize: 15, fontWeight: 700, color: "#0f2744", marginBottom: 8 }}>
-                  Puntaje: {result?.puntaje_obtenido || 0}/{result?.puntaje_maximo || question.puntaje_sugerido}
+                  Puntaje: {result?.puntaje_obtenido || 0}/{result?.puntaje_maximo || step.puntajeMaximo}
                 </div>
                 <pre style={{ margin: 0, whiteSpace: "pre-wrap", color: "#506478", lineHeight: 1.6, fontFamily: "'DM Sans', 'Segoe UI', sans-serif" }}>
                   {renderFeedbackItems(result?.items)}
@@ -884,23 +822,24 @@ export default function ResidentExamApp({ user, onLogout }) {
             );
           })}
 
-          {additionalQuestions.length > 0 && (
+          {resultAdditionalSteps.length > 0 && (
             <div style={{ display: "grid", gap: 16 }}>
               <div style={{ background: "#fff8e8", border: "1px solid #f0d8a0", borderRadius: 16, padding: "18px 24px", color: "#6b4e00" }}>
                 <strong>Medicina Familiar — preguntas adicionales</strong>
               </div>
-              {additionalQuestions.map((question) => {
-                const result = grading[question.numero];
+              {resultAdditionalSteps.map((step) => {
+                const result = grading[step.key];
                 return (
-                  <div key={`${question.numero}-${question.orden}`} style={{ background: "#fff", borderRadius: 16, padding: "24px 28px", border: "1px solid #e2e8f0" }}>
+                  <div key={`${step.key}-${step.question.orden}`} style={{ background: "#fff", borderRadius: 16, padding: "24px 28px", border: "1px solid #e2e8f0" }}>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-                      <HeaderBadge text={question.rotacion} color="#0f2744" background="#eef4fb" />
-                      <HeaderBadge text={question.dominio} color="#164e63" background="#daf5fb" />
+                      <HeaderBadge text={step.question.rotacion} color="#0f2744" background="#eef4fb" />
+                      <HeaderBadge text={step.question.dominio} color="#164e63" background="#daf5fb" />
                       <HeaderBadge text="Adicional" color="#7c2d12" background="#ffedd5" />
                     </div>
-                    <div style={{ fontSize: 14, color: "#1a2e44", lineHeight: 1.7, marginBottom: 14 }}>{question.enunciado}</div>
+                    <div style={{ fontSize: 14, color: "#1a2e44", lineHeight: 1.7, marginBottom: 10 }}>{step.caseText || step.question.enunciado}</div>
+                    {step.prompt && <div style={{ fontSize: 15, color: "#0f2744", fontWeight: 700, marginBottom: 14 }}>{step.prompt}</div>}
                     <div style={{ fontSize: 15, fontWeight: 700, color: "#0f2744", marginBottom: 8 }}>
-                      Puntaje: {result?.puntaje_obtenido || 0}/{result?.puntaje_maximo || question.puntaje_sugerido}
+                      Puntaje: {result?.puntaje_obtenido || 0}/{result?.puntaje_maximo || step.puntajeMaximo}
                     </div>
                     <pre style={{ margin: 0, whiteSpace: "pre-wrap", color: "#506478", lineHeight: 1.6, fontFamily: "'DM Sans', 'Segoe UI', sans-serif" }}>
                       {renderFeedbackItems(result?.items)}
@@ -916,15 +855,15 @@ export default function ResidentExamApp({ user, onLogout }) {
     );
   }
 
-  if (screen === "exam" && currentQuestion) {
+  if (screen === "exam" && currentQuestion && currentStep) {
     return (
       <div style={{ minHeight: "100vh", background: "#f4f6f9", fontFamily: "'DM Sans', 'Segoe UI', sans-serif" }}>
         <div style={{ background: "#0f2744", color: "#fff", padding: isMobile ? "14px 16px" : "16px 24px", position: "sticky", top: 0, zIndex: 10 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 24, flexWrap: isMobile ? "wrap" : "nowrap" }}>
             <div>
-              <div style={{ fontWeight: 700, fontSize: isMobile ? 16 : 16 }}>🩺 {currentExam?.rotacion} · Examen R2 + R3</div>
+              <div style={{ fontWeight: 700, fontSize: 16 }}>🩺 {currentExam?.rotacion} · Examen R2 + R3</div>
               <div style={{ fontSize: 12, opacity: 0.65, marginTop: 4 }}>
-                {phase === "additional" ? "Preguntas adicionales" : "Examen en curso"} · Pregunta {currentIndex + 1} de {allQuestions.length}
+                {phase === "additional" ? "Preguntas adicionales" : "Examen en curso"} · Paso {currentIndex + 1} de {allSteps.length}
               </div>
             </div>
             <div style={{ minWidth: isMobile ? "100%" : 220 }}>
@@ -953,33 +892,20 @@ export default function ResidentExamApp({ user, onLogout }) {
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
                 <HeaderBadge text={currentQuestion.rotacion} color="#0f2744" background="#eef4fb" />
                 <HeaderBadge text={currentQuestion.dominio} color="#164e63" background="#daf5fb" />
-                {currentQuestion.es_adicional && (
-                  <HeaderBadge text="Adicional" color="#7c2d12" background="#ffedd5" />
-                )}
+                {currentQuestion.es_adicional && <HeaderBadge text="Adicional" color="#7c2d12" background="#ffedd5" />}
+                {currentStep.hasSubQuestions && <HeaderBadge text={`Sub-pregunta ${String.fromCharCode(97 + currentStep.subIndex)})`} color="#6b4b00" background="#fff2cf" />}
               </div>
-              <h2 style={{ margin: "0 0 12px", fontSize: isMobile ? 22 : 24, fontWeight: 800, color: "#0f2744" }}>
-                Enunciado completo
-              </h2>
-              <div
-                style={{
-                  whiteSpace: "pre-wrap",
-                  color: "#1a2e44",
-                  lineHeight: 1.7,
-                  marginBottom: 16,
-                  fontSize: 16,
-                  maxHeight: isMobile ? 280 : "none",
-                  overflowY: isMobile ? "auto" : "visible",
-                  paddingRight: isMobile ? 4 : 0,
-                }}
-              >
-                {currentQuestion.enunciado}
+              <h2 style={{ margin: "0 0 12px", fontSize: isMobile ? 22 : 24, fontWeight: 800, color: "#0f2744" }}>Enunciado completo</h2>
+              <div style={{ whiteSpace: "pre-wrap", color: "#1a2e44", lineHeight: 1.7, marginBottom: 16, fontSize: 16, maxHeight: isMobile ? 280 : "none", overflowY: isMobile ? "auto" : "visible", paddingRight: isMobile ? 4 : 0 }}>
+                {currentStep.caseText || currentQuestion.enunciado}
               </div>
+              {currentStep.prompt && (
+                <div style={{ background: "#f8fbff", border: "1px solid #dfe7f1", borderRadius: 14, padding: "14px 16px", marginBottom: 16, color: "#1a2e44", fontSize: 16, lineHeight: 1.6, fontWeight: 600 }}>
+                  {currentStep.prompt}
+                </div>
+              )}
               {currentQuestion.imagen_url && (
-                <img
-                  src={currentQuestion.imagen_url}
-                  alt={`Pregunta ${currentQuestion.numero}`}
-                  style={{ width: "100%", maxHeight: 320, objectFit: "contain", borderRadius: 14, border: "1px solid #dfe7f1", background: "#f8fbff" }}
-                />
+                <img src={currentQuestion.imagen_url} alt={`Pregunta ${currentQuestion.numero}`} style={{ width: "100%", maxHeight: 320, objectFit: "contain", borderRadius: 14, border: "1px solid #dfe7f1", background: "#f8fbff" }} />
               )}
 
               <div style={{ height: 1, background: "#e2e8f0", margin: "18px 0" }} />
@@ -993,9 +919,7 @@ export default function ResidentExamApp({ user, onLogout }) {
                   Guardando tus respuestas para enviar el examen automáticamente...
                 </div>
               )}
-              <label style={{ fontSize: 12, fontWeight: 700, color: "#607284", display: "block", marginBottom: 10 }}>
-                Tu respuesta
-              </label>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "#607284", display: "block", marginBottom: 10 }}>Tu respuesta</label>
               <textarea
                 value={currentText}
                 onChange={(event) => setCurrentText(event.target.value)}
@@ -1045,13 +969,9 @@ export default function ResidentExamApp({ user, onLogout }) {
 
           <div style={{ order: isMobile ? 1 : 2 }}>
             <div style={{ background: "#fff", borderRadius: 18, border: "1px solid #e2e8f0", padding: isMobile ? 16 : 20, position: isMobile ? "static" : "sticky", top: 96 }}>
-              <div style={{ fontSize: isMobile ? 22 : 26, fontWeight: 800, color: timerColor, marginBottom: 8 }}>
-                ⏱ {timeLabel(timeLeft)}
-              </div>
+              <div style={{ fontSize: isMobile ? 22 : 26, fontWeight: 800, color: timerColor, marginBottom: 8 }}>⏱ {timeLabel(timeLeft)}</div>
               <ProgressBar value={timerProgress} max={100} color={timerColor} height={10} />
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#607284", margin: "18px 0 12px" }}>
-                Progreso
-              </div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#607284", margin: "18px 0 12px" }}>Progreso</div>
               <div style={{ display: "flex", flexDirection: isMobile ? "row" : "column", flexWrap: isMobile ? "wrap" : "nowrap", gap: 10 }}>
                 {domainProgress.map((item) => (
                   <div
@@ -1076,19 +996,7 @@ export default function ResidentExamApp({ user, onLogout }) {
         </div>
 
         {isMobile && (
-          <div
-            style={{
-              position: "fixed",
-              left: 0,
-              right: 0,
-              bottom: 0,
-              zIndex: 15,
-              padding: 16,
-              background: "rgba(244,246,249,0.96)",
-              borderTop: "1px solid #dfe7f1",
-              backdropFilter: "blur(10px)",
-            }}
-          >
+          <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 15, padding: 16, background: "rgba(244,246,249,0.96)", borderTop: "1px solid #dfe7f1", backdropFilter: "blur(10px)" }}>
             <button
               onClick={confirmAndNext}
               disabled={!canContinue || busy}
@@ -1144,9 +1052,7 @@ export default function ResidentExamApp({ user, onLogout }) {
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
                 <HeaderBadge text={rotation.summary.label} color="#0f2744" background="#eef4fb" />
                 <HeaderBadge text={`${rotation.summary.attempts} intento${rotation.summary.attempts === 1 ? "" : "s"}`} color="#506478" background="#f4f7fb" />
-                {rotation.summary.lastScore !== null && (
-                  <HeaderBadge text={`Último puntaje: ${rotation.summary.lastScore}`} color="#166534" background="#dcfce7" />
-                )}
+                {rotation.summary.lastScore !== null && <HeaderBadge text={`Último puntaje: ${rotation.summary.lastScore}`} color="#166534" background="#dcfce7" />}
               </div>
             </div>
             <button

@@ -147,14 +147,16 @@ function ExamDetailModal({ exam, onClose }) {
 
         <div style={{ display: "grid", gap: 14 }}>
           {exam.questionDetails.map((question) => (
-            <div key={`${exam.id}-${question.pregunta_numero}`} style={{ border: "1px solid #dfe7f1", borderRadius: 18, padding: 18, background: "#f8fbff", display: "grid", gap: 10 }}>
+            <div key={`${exam.id}-${question.pregunta_numero}-${question.subpregunta_indice || 0}`} style={{ border: "1px solid #dfe7f1", borderRadius: 18, padding: 18, background: "#f8fbff", display: "grid", gap: 10 }}>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <StatusBadge text={`Pregunta ${question.orden}`} color="#0f2744" background="#eef4fb" />
+                {question.subpregunta_texto && <StatusBadge text={`Sub ${String.fromCharCode(97 + Number(question.subpregunta_indice || 0))})`} color="#506478" background="#f4f7fb" />}
                 <StatusBadge text={question.dominio} color="#164e63" background="#daf5fb" />
                 {question.es_adicional && <StatusBadge text="Adicional" color="#7c2d12" background="#ffedd5" />}
                 <StatusBadge text={`Puntaje ${formatScore(question.puntaje_obtenido)}/${formatScore(question.puntaje_maximo)}`} color="#6b4e00" background="#fff8db" />
               </div>
               <Field label="Enunciado" value={question.enunciado || "Sin enunciado"} />
+              {question.subpregunta_texto ? <Field label="Sub-pregunta" value={question.subpregunta_texto} /> : null}
               <Field label="Respuesta de la residente" value={question.respuesta_texto || "Sin respuesta"} />
               <Field label="Feedback IA" value={question.feedback_ia || "Sin feedback"} />
             </div>

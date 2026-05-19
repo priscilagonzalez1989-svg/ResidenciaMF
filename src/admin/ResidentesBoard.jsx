@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase";
+import { buildQuestionSteps, stepKey } from "../exams/questionFlow";
 
 const BASE_FILTERS = {
   anio: "Todos",
@@ -110,6 +111,13 @@ function ExamAnswerCard({ answer }) {
           color="#0f2744"
           background="#eef4fb"
         />
+        {answer.subpregunta_texto && (
+          <StatusBadge
+            text={`Sub ${String.fromCharCode(97 + Number(answer.subpregunta_indice || 0))})`}
+            color="#506478"
+            background="#f4f7fb"
+          />
+        )}
         {answer.dominio && (
           <StatusBadge
             text={answer.dominio}
@@ -125,6 +133,7 @@ function ExamAnswerCard({ answer }) {
       </div>
 
       <Field label="Enunciado" value={answer.enunciado || "Sin enunciado disponible"} />
+      {answer.subpregunta_texto ? <Field label="Sub-pregunta" value={answer.subpregunta_texto} /> : null}
       <Field label="Respuesta" value={answer.respuesta_texto || "Sin respuesta"} />
       <Field label="Feedback IA" value={answer.feedback_ia || "Sin feedback disponible"} />
     </div>
@@ -524,18 +533,24 @@ export default function ResidentesBoard({
       const answersByExam = (respuestas || []).reduce((acc, answer) => {
         const question = questionsMap.get(answer.pregunta_numero);
         if (!acc[answer.examen_id]) acc[answer.examen_id] = [];
+        const baseQuestion = question ? [{ ...question, orden: 1, es_adicional: false }] : [];
+        const step = buildQuestionSteps(baseQuestion, "detail").find(
+          (item) => item.subIndex === Number(answer.subpregunta_indice || 0)
+        );
         acc[answer.examen_id].push({
           ...answer,
-          enunciado: question?.enunciado || "",
+          enunciado: step?.caseText || question?.enunciado || "",
+          subpregunta_texto: answer.subpregunta_texto || step?.prompt || "",
           dominio: question?.dominio || "",
-          puntaje_maximo: question?.puntaje_sugerido || null,
+          puntaje_maximo: step?.puntajeMaximo || question?.puntaje_sugerido || null,
+          _sortKey: stepKey(answer.pregunta_numero, answer.subpregunta_indice || 0),
         });
         return acc;
       }, {});
 
       const merged = exams.map((exam) => ({
         ...exam,
-        answers: answersByExam[exam.id] || [],
+        answers: (answersByExam[exam.id] || []).sort((a, b) => a._sortKey.localeCompare(b._sortKey)),
       }));
 
       setResidentExams(merged);
