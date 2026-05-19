@@ -114,6 +114,7 @@ const ADMIN_NAV_ITEMS = [
   { path: "/admin/dashboard", label: "Tablero", icon: "📊" },
   { path: "/admin/banco-preguntas", label: "Banco de preguntas", icon: "📚" },
   { path: "/admin/examenes", label: "Exámenes", icon: "📝" },
+  { path: "/modo-prueba", label: "Modo prueba", icon: "🧪" },
   { path: "/admin/residentes", label: "Residentes", icon: "👥" },
 ];
 
