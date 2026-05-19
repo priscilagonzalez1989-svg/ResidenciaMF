@@ -192,6 +192,14 @@ export default function ExamenesPanel() {
   const [dataset, setDataset] = useState({ exams: [], residents: [] });
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [selectedExam, setSelectedExam] = useState(null);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
+  const [showFilters, setShowFilters] = useState(false);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -250,8 +258,8 @@ export default function ExamenesPanel() {
   }, [dataset.exams, filters]);
 
   return (
-    <div style={{ display: "grid", gap: 24, padding: 28 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start" }}>
+    <div style={{ display: "grid", gap: 24, padding: isMobile ? 16 : 28 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 30, fontWeight: 800, color: "#0f2744" }}>Exámenes</h1>
           <p style={{ margin: "10px 0 0", color: "#6c7d90", fontSize: 15 }}>
@@ -264,13 +272,76 @@ export default function ExamenesPanel() {
         </div>
       </div>
 
+      {isMobile && (
+        <button
+          onClick={() => setShowFilters(true)}
+          style={{
+            minHeight: 48,
+            borderRadius: 14,
+            border: "1px solid #d7e1ec",
+            background: "#fff",
+            color: "#1a2e44",
+            fontSize: 16,
+            fontWeight: 700,
+            padding: "12px 16px",
+            cursor: "pointer",
+            justifySelf: "start",
+          }}
+        >
+          Filtrar
+        </button>
+      )}
+
       {error && (
         <div style={{ border: "1px solid #f3b7b7", background: "#fff3f3", color: "#8f2d2d", borderRadius: 16, padding: "14px 16px" }}>
           No se pudo cargar la sección de exámenes: {error}
         </div>
       )}
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 14, padding: 18, borderRadius: 20, background: "#f8fbff", border: "1px solid #dfe7f1" }}>
+      {(!isMobile || showFilters) && (
+        <div
+          style={
+            isMobile
+              ? {
+                  position: "fixed",
+                  inset: 0,
+                  background: "rgba(15,39,68,0.34)",
+                  zIndex: 40,
+                  padding: 16,
+                  display: "flex",
+                  justifyContent: "flex-end",
+                }
+              : {}
+          }
+          onClick={isMobile ? () => setShowFilters(false) : undefined}
+        >
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 14,
+              padding: 18,
+              borderRadius: 20,
+              background: "#f8fbff",
+              border: "1px solid #dfe7f1",
+              width: isMobile ? "min(420px, 100%)" : "auto",
+              maxHeight: isMobile ? "calc(100vh - 32px)" : "none",
+              overflowY: isMobile ? "auto" : "visible",
+              boxShadow: isMobile ? "0 16px 40px rgba(15,39,68,0.16)" : "none",
+            }}
+            onClick={isMobile ? (event) => event.stopPropagation() : undefined}
+          >
+            {isMobile && (
+              <div style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <strong style={{ color: "#0f2744", fontSize: 18 }}>Filtros</strong>
+                <button
+                  onClick={() => setShowFilters(false)}
+                  style={{ border: "none", background: "transparent", color: "#39516b", fontSize: 16, cursor: "pointer" }}
+                >
+                  Cerrar
+                </button>
+              </div>
+            )}
         <FilterSelect label="Rotación" value={filters.rotacion} options={options.rotacion} onChange={(value) => setFilters((current) => ({ ...current, rotacion: value }))} />
         <FilterSelect label="Residente" value={filters.residente} options={options.residente} onChange={(value) => setFilters((current) => ({ ...current, residente: value }))} />
         <FilterSelect label="Estado" value={filters.estado} options={options.estado} onChange={(value) => setFilters((current) => ({ ...current, estado: value }))} />
@@ -283,7 +354,9 @@ export default function ExamenesPanel() {
             style={{ height: 42, border: "1px solid #d7e1ec", borderRadius: 12, padding: "0 12px", background: "#fff", color: "#1a2e44", fontSize: 14, fontFamily: "inherit" }}
           />
         </label>
-      </div>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div style={{ color: "#607284" }}>Cargando exámenes...</div>
@@ -292,7 +365,39 @@ export default function ExamenesPanel() {
       ) : !filteredExams.length ? (
         <div style={{ color: "#607284" }}>No hay exámenes para los filtros seleccionados.</div>
       ) : (
-        <div style={{ border: "1px solid #dfe7f1", borderRadius: 24, overflow: "hidden", background: "#fff" }}>
+        isMobile ? (
+          <div style={{ display: "grid", gap: 14 }}>
+            {filteredExams.map((exam) => (
+              <button
+                key={exam.id}
+                onClick={() => setSelectedExam(exam)}
+                style={{
+                  width: "100%",
+                  border: "1px solid #dfe7f1",
+                  borderRadius: 18,
+                  background: "#fff",
+                  padding: 16,
+                  display: "grid",
+                  gap: 10,
+                  textAlign: "left",
+                  cursor: "pointer",
+                }}
+              >
+                <div style={{ fontSize: 18, fontWeight: 800, color: "#0f2744" }}>
+                  {exam.residente?.nombre} {exam.residente?.apellido}
+                </div>
+                <div style={{ color: "#4d6174", fontSize: 16 }}>{exam.rotacion}</div>
+                <div style={{ color: "#4d6174", fontSize: 14 }}>{formatDateTime(exam.finalizado_at || exam.created_at)}</div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <StatusBadge text={`Puntaje ${formatScore(exam.puntaje_total)}`} color="#0f2744" background="#eef4fb" />
+                  <StatusBadge text={`${exam.percentage}%`} color="#164e63" background="#daf5fb" />
+                  <StatusBadge text={examStateLabel(exam)} color="#0f2744" background="#eef4fb" />
+                </div>
+              </button>
+            ))}
+          </div>
+        ) : (
+        <div style={{ border: "1px solid #dfe7f1", borderRadius: 24, overflowX: "auto", background: "#fff" }}>
           <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1fr 0.9fr 0.8fr 0.8fr 0.9fr", gap: 12, padding: "14px 18px", background: "#f8fbff", borderBottom: "1px solid #e8eef5", fontSize: 12, fontWeight: 700, color: "#607284", letterSpacing: "0.04em", textTransform: "uppercase" }}>
             <div>Residente</div>
             <div>Rotación</div>
@@ -320,6 +425,7 @@ export default function ExamenesPanel() {
             </button>
           ))}
         </div>
+        )
       )}
 
       <ExamDetailModal exam={selectedExam} onClose={() => setSelectedExam(null)} />

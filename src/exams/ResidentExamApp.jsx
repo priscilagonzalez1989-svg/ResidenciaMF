@@ -394,7 +394,7 @@ export default function ResidentExamApp({ user, onLogout }) {
   const [currentText, setCurrentText] = useState("");
   const [busy, setBusy] = useState(false);
   const [resultMeta, setResultMeta] = useState(null);
-  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 960);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
   const [timeExpired, setTimeExpired] = useState(false);
   const [exitSubmitting, setExitSubmitting] = useState(false);
   const timerRef = useRef(null);
@@ -504,7 +504,7 @@ export default function ResidentExamApp({ user, onLogout }) {
   });
 
   useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 960);
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
@@ -799,6 +799,7 @@ export default function ResidentExamApp({ user, onLogout }) {
 
   const timerColor = timeLeft <= 10 * 60 ? "#e05454" : "#4a9fd4";
   const timerProgress = (timeLeft / EXAM_DURATION_SECONDS) * 100;
+  const mobileFooterHeight = 90;
 
   if (loading) {
     return (
@@ -918,18 +919,18 @@ export default function ResidentExamApp({ user, onLogout }) {
   if (screen === "exam" && currentQuestion) {
     return (
       <div style={{ minHeight: "100vh", background: "#f4f6f9", fontFamily: "'DM Sans', 'Segoe UI', sans-serif" }}>
-        <div style={{ background: "#0f2744", color: "#fff", padding: "16px 24px", position: "sticky", top: 0, zIndex: 10 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 24 }}>
+        <div style={{ background: "#0f2744", color: "#fff", padding: isMobile ? "14px 16px" : "16px 24px", position: "sticky", top: 0, zIndex: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 24, flexWrap: isMobile ? "wrap" : "nowrap" }}>
             <div>
-              <div style={{ fontWeight: 700, fontSize: 16 }}>🩺 {currentExam?.rotacion} · Examen R2 + R3</div>
-              <div style={{ fontSize: 12, opacity: 0.65 }}>
+              <div style={{ fontWeight: 700, fontSize: isMobile ? 16 : 16 }}>🩺 {currentExam?.rotacion} · Examen R2 + R3</div>
+              <div style={{ fontSize: 12, opacity: 0.65, marginTop: 4 }}>
                 {phase === "additional" ? "Preguntas adicionales" : "Examen en curso"} · Pregunta {currentIndex + 1} de {allQuestions.length}
               </div>
             </div>
-            <div style={{ minWidth: 220 }}>
+            <div style={{ minWidth: isMobile ? "100%" : 220 }}>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
                 <span>Tiempo restante</span>
-                <strong>{timeLabel(timeLeft)}</strong>
+                <strong style={{ color: timerColor }}>{timeLabel(timeLeft)}</strong>
               </div>
               <ProgressBar value={timerProgress} max={100} color={timerColor} height={10} />
             </div>
@@ -940,7 +941,7 @@ export default function ResidentExamApp({ user, onLogout }) {
           style={{
             maxWidth: 1180,
             margin: "0 auto",
-            padding: "24px",
+            padding: isMobile ? "16px 16px 120px" : "24px",
             display: "grid",
             gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1.45fr) minmax(280px, 0.65fr)",
             gap: 20,
@@ -956,10 +957,21 @@ export default function ResidentExamApp({ user, onLogout }) {
                   <HeaderBadge text="Adicional" color="#7c2d12" background="#ffedd5" />
                 )}
               </div>
-              <h2 style={{ margin: "0 0 12px", fontSize: 24, fontWeight: 800, color: "#0f2744" }}>
+              <h2 style={{ margin: "0 0 12px", fontSize: isMobile ? 22 : 24, fontWeight: 800, color: "#0f2744" }}>
                 Enunciado completo
               </h2>
-              <div style={{ whiteSpace: "pre-wrap", color: "#1a2e44", lineHeight: 1.7, marginBottom: 16 }}>
+              <div
+                style={{
+                  whiteSpace: "pre-wrap",
+                  color: "#1a2e44",
+                  lineHeight: 1.7,
+                  marginBottom: 16,
+                  fontSize: 16,
+                  maxHeight: isMobile ? 280 : "none",
+                  overflowY: isMobile ? "auto" : "visible",
+                  paddingRight: isMobile ? 4 : 0,
+                }}
+              >
                 {currentQuestion.enunciado}
               </div>
               {currentQuestion.imagen_url && (
@@ -992,11 +1004,11 @@ export default function ResidentExamApp({ user, onLogout }) {
                 disabled={timeExpired || exitSubmitting || busy}
                 style={{
                   width: "100%",
-                  minHeight: 180,
+                  minHeight: isMobile ? 160 : 180,
                   border: "1px solid #e2e8f0",
                   borderRadius: 12,
                   padding: "14px 16px",
-                  fontSize: 15,
+                  fontSize: 16,
                   lineHeight: 1.6,
                   resize: "vertical",
                   outline: "none",
@@ -1006,38 +1018,41 @@ export default function ResidentExamApp({ user, onLogout }) {
                   background: timeExpired || exitSubmitting ? "#f8fafc" : "#fff",
                 }}
               />
-              <button
-                onClick={confirmAndNext}
-                disabled={!canContinue || busy}
-                style={{
-                  marginTop: 16,
-                  width: "100%",
-                  background: "#4a9fd4",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: 12,
-                  padding: "14px 20px",
-                  fontSize: 15,
-                  fontWeight: 700,
-                  cursor: !canContinue || busy ? "not-allowed" : "pointer",
-                  opacity: !canContinue || busy ? 0.65 : 1,
-                }}
-              >
-                {busy ? "Guardando..." : "Confirmar y siguiente →"}
-              </button>
+              {!isMobile && (
+                <button
+                  onClick={confirmAndNext}
+                  disabled={!canContinue || busy}
+                  style={{
+                    marginTop: 16,
+                    width: "100%",
+                    minHeight: 48,
+                    background: "#4a9fd4",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 12,
+                    padding: "14px 20px",
+                    fontSize: 16,
+                    fontWeight: 700,
+                    cursor: !canContinue || busy ? "not-allowed" : "pointer",
+                    opacity: !canContinue || busy ? 0.65 : 1,
+                  }}
+                >
+                  {busy ? "Guardando..." : "Confirmar y siguiente →"}
+                </button>
+              )}
             </div>
           </div>
 
           <div style={{ order: isMobile ? 1 : 2 }}>
-            <div style={{ background: "#fff", borderRadius: 18, border: "1px solid #e2e8f0", padding: 20, position: isMobile ? "static" : "sticky", top: 96 }}>
-              <div style={{ fontSize: 26, fontWeight: 800, color: timerColor, marginBottom: 8 }}>
+            <div style={{ background: "#fff", borderRadius: 18, border: "1px solid #e2e8f0", padding: isMobile ? 16 : 20, position: isMobile ? "static" : "sticky", top: 96 }}>
+              <div style={{ fontSize: isMobile ? 22 : 26, fontWeight: 800, color: timerColor, marginBottom: 8 }}>
                 ⏱ {timeLabel(timeLeft)}
               </div>
               <ProgressBar value={timerProgress} max={100} color={timerColor} height={10} />
               <div style={{ fontSize: 12, fontWeight: 700, color: "#607284", margin: "18px 0 12px" }}>
                 Progreso
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ display: "flex", flexDirection: isMobile ? "row" : "column", flexWrap: isMobile ? "wrap" : "nowrap", gap: 10 }}>
                 {domainProgress.map((item) => (
                   <div
                     key={item.key}
@@ -1046,26 +1061,62 @@ export default function ResidentExamApp({ user, onLogout }) {
                       alignItems: "center",
                       gap: 10,
                       borderRadius: 12,
-                      padding: "10px 12px",
+                      padding: isMobile ? "8px 10px" : "10px 12px",
                       background: item.current ? "#eef6ff" : item.done ? "#f1fbf4" : "#f8fbff",
                       border: `1px solid ${item.current ? "#c8dff5" : item.done ? "#d2ecd9" : "#e2e8f0"}`,
                     }}
                   >
-                    <span style={{ fontSize: 14 }}>{item.done ? "✓" : item.current ? "•" : "○"}</span>
-                    <span style={{ fontSize: 13, color: "#1a2e44" }}>{item.dominio}</span>
+                    <span style={{ fontSize: 14 }}>{item.done ? "✓" : item.current ? "●" : "○"}</span>
+                    <span style={{ fontSize: isMobile ? 12 : 13, color: "#1a2e44" }}>{item.dominio}</span>
                   </div>
                 ))}
               </div>
             </div>
           </div>
         </div>
+
+        {isMobile && (
+          <div
+            style={{
+              position: "fixed",
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 15,
+              padding: 16,
+              background: "rgba(244,246,249,0.96)",
+              borderTop: "1px solid #dfe7f1",
+              backdropFilter: "blur(10px)",
+            }}
+          >
+            <button
+              onClick={confirmAndNext}
+              disabled={!canContinue || busy}
+              style={{
+                width: "100%",
+                minHeight: 52,
+                background: "#4a9fd4",
+                color: "#fff",
+                border: "none",
+                borderRadius: 14,
+                padding: "14px 20px",
+                fontSize: 16,
+                fontWeight: 700,
+                cursor: !canContinue || busy ? "not-allowed" : "pointer",
+                opacity: !canContinue || busy ? 0.65 : 1,
+              }}
+            >
+              {busy ? "Guardando..." : "Confirmar y siguiente →"}
+            </button>
+          </div>
+        )}
       </div>
     );
   }
 
   return (
     <div style={{ minHeight: "100vh", background: "#f4f6f9", fontFamily: "'DM Sans', 'Segoe UI', sans-serif" }}>
-      <div style={{ background: "#0f2744", color: "#fff", padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <div style={{ background: "#0f2744", color: "#fff", padding: isMobile ? "14px 16px" : "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <span style={{ fontSize: 20 }}>🩺</span>
           <div>
@@ -1079,7 +1130,7 @@ export default function ResidentExamApp({ user, onLogout }) {
         </div>
       </div>
 
-      <div style={{ maxWidth: 920, margin: "0 auto", padding: "32px 24px", display: "grid", gap: 20 }}>
+      <div style={{ maxWidth: 920, margin: "0 auto", padding: isMobile ? "24px 16px" : "32px 24px", display: "grid", gap: 20 }}>
         {error && (
           <div style={{ background: "#fff3f3", border: "1px solid #f0b8b8", borderRadius: 16, padding: "16px 20px", color: "#8f2d2d" }}>
             {error}
@@ -1087,9 +1138,9 @@ export default function ResidentExamApp({ user, onLogout }) {
         )}
 
         {rotationStates.map((rotation) => (
-          <div key={rotation.key} style={{ background: "#fff", borderRadius: 18, border: "1px solid #e2e8f0", padding: "22px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20 }}>
+          <div key={rotation.key} style={{ background: "#fff", borderRadius: 18, border: "1px solid #e2e8f0", padding: isMobile ? "18px 16px" : "22px 24px", display: "flex", alignItems: isMobile ? "stretch" : "center", justifyContent: "space-between", gap: 20, flexDirection: isMobile ? "column" : "row" }}>
             <div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: "#0f2744", marginBottom: 6 }}>{rotation.label}</div>
+              <div style={{ fontSize: isMobile ? 22 : 20, fontWeight: 800, color: "#0f2744", marginBottom: 6 }}>{rotation.label}</div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
                 <HeaderBadge text={rotation.summary.label} color="#0f2744" background="#eef4fb" />
                 <HeaderBadge text={`${rotation.summary.attempts} intento${rotation.summary.attempts === 1 ? "" : "s"}`} color="#506478" background="#f4f7fb" />
@@ -1106,8 +1157,10 @@ export default function ResidentExamApp({ user, onLogout }) {
                 color: rotation.summary.canStart ? "#fff" : "#708193",
                 border: "none",
                 borderRadius: 12,
+                minHeight: 48,
+                width: isMobile ? "100%" : "auto",
                 padding: "14px 22px",
-                fontSize: 15,
+                fontSize: 16,
                 fontWeight: 700,
                 cursor: rotation.summary.canStart && !busy ? "pointer" : "not-allowed",
               }}

@@ -63,6 +63,13 @@ export default function TableroPanel({ onOpenResident, readOnlyLabel = null }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [dataset, setDataset] = useState({ exams: [], residents: [] });
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -118,8 +125,8 @@ export default function TableroPanel({ onOpenResident, readOnlyLabel = null }) {
   const residentSummaries = useMemo(() => buildResidentSummaries(dataset.exams), [dataset.exams]);
 
   return (
-    <div style={{ display: "grid", gap: 24, padding: 28 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start" }}>
+    <div style={{ display: "grid", gap: 24, padding: isMobile ? 16 : 28 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 30, fontWeight: 800, color: "#0f2744" }}>Tablero</h1>
           <p style={{ margin: "10px 0 0", color: "#6c7d90", fontSize: 15 }}>
@@ -156,7 +163,7 @@ export default function TableroPanel({ onOpenResident, readOnlyLabel = null }) {
         <EmptyState />
       ) : (
         <>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 16 }}>
             <SummaryCard
               title="Exámenes rendidos"
               value={completedExams.length}
@@ -186,7 +193,7 @@ export default function TableroPanel({ onOpenResident, readOnlyLabel = null }) {
             <div style={{ display: "grid", gap: 0 }}>
               {residentSummaries.map((summary) => (
                 <div key={summary.residente?.id || summary.residente?.email} style={{ padding: "18px 24px", borderBottom: "1px solid #edf2f7" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "center", marginBottom: 14 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "center", marginBottom: 14, flexWrap: "wrap" }}>
                     <div>
                       <div style={{ fontSize: 18, fontWeight: 800, color: "#0f2744" }}>
                         {summary.residente?.nombre} {summary.residente?.apellido}
@@ -214,7 +221,7 @@ export default function TableroPanel({ onOpenResident, readOnlyLabel = null }) {
                     )}
                   </div>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 14 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(4, minmax(0, 1fr))", gap: 14 }}>
                     {summary.domainPercentages.map((item) => (
                       <div key={`${summary.residente?.id}-${item.dominio}`} style={{ background: "#f8fbff", border: "1px solid #e6eef7", borderRadius: 16, padding: 14 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
