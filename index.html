@@ -1142,6 +1142,31 @@ function showLeadFeedback(message, type = 'success') {
   feedback.classList.add(type);
 }
 
+function getRoleRedirect(session) {
+  const role = session?.user?.app_metadata?.role || null;
+
+  if (role === 'admin') return '/admin/dashboard';
+  if (role === 'docente') return '/docente/dashboard';
+  if (role === 'residente') return '/mis-examenes';
+
+  return null;
+}
+
+function redirectForSessionRole(session) {
+  const target = getRoleRedirect(session);
+
+  if (!target) {
+    showLeadFeedback(
+      'Tu cuenta está autenticada pero todavía no tiene un rol asignado. Comunicate con la coordinación para obtener acceso.',
+      'error'
+    );
+    return false;
+  }
+
+  window.location.href = target;
+  return true;
+}
+
 function clearAuthHash() {
   const cleanUrl = window.location.pathname;
   history.replaceState({}, document.title, cleanUrl);
@@ -1221,7 +1246,9 @@ async function hydrateAuthSession() {
   }
 
   if (data.session?.user?.email) {
-    showLeadFeedback(`Ya tenés una sesión activa como ${data.session.user.email}.`, 'success');
+    if (!redirectForSessionRole(data.session)) {
+      showLeadFeedback(`Ya tenés una sesión activa como ${data.session.user.email}.`, 'success');
+    }
   }
 }
 
@@ -1417,6 +1444,7 @@ supabaseClient.auth.onAuthStateChange((event, session) => {
   if (event === 'SIGNED_IN' && session?.user?.email) {
     showLeadFeedback(`¡Listo! Ya ingresaste como ${session.user.email}.`, 'success');
     clearAuthHash();
+    redirectForSessionRole(session);
   }
 
   if (event === 'SIGNED_OUT') {
