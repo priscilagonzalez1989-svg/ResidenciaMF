@@ -1130,6 +1130,8 @@ const DEMO_ACCESS_CODE = 'DEMO2026';
 const DEMO_CONTACT_EMAIL = 'priscila-gonzalez@live.com';
 const SUPABASE_URL = 'https://covnmlolzupnaepqydbe.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_VRkXxjLc54QMurO8v9lvSg_KRg0NNQW';
+// TODO: mover esta URL a una configuración central si cambia el deploy principal de la app React.
+const APP_BASE_URL = 'https://residenciamedfam-qdtciqe99-priscila-gonzalez-s-projects.vercel.app';
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const messagesHistory = [];
@@ -1145,9 +1147,9 @@ function showLeadFeedback(message, type = 'success') {
 function getRoleRedirect(session) {
   const role = session?.user?.app_metadata?.role || null;
 
-  if (role === 'admin') return '/admin/dashboard';
-  if (role === 'docente') return '/docente/dashboard';
-  if (role === 'residente') return '/mis-examenes';
+  if (role === 'admin') return `${APP_BASE_URL}/admin/dashboard`;
+  if (role === 'docente') return `${APP_BASE_URL}/docente/dashboard`;
+  if (role === 'residente') return `${APP_BASE_URL}/mis-examenes`;
 
   return null;
 }
@@ -1245,10 +1247,15 @@ async function hydrateAuthSession() {
     return;
   }
 
-  if (data.session?.user?.email) {
-    if (!redirectForSessionRole(data.session)) {
-      showLeadFeedback(`Ya tenés una sesión activa como ${data.session.user.email}.`, 'success');
-    }
+  if (!data.session?.user?.email) {
+    return;
+  }
+
+  if (!redirectForSessionRole(data.session)) {
+    showLeadFeedback(
+      'Tu cuenta está autenticada pero todavía no tiene un rol asignado. Comunicate con la coordinación para obtener acceso.',
+      'error'
+    );
   }
 }
 
@@ -1442,9 +1449,13 @@ initLandingAuth();
 
 supabaseClient.auth.onAuthStateChange((event, session) => {
   if (event === 'SIGNED_IN' && session?.user?.email) {
-    showLeadFeedback(`¡Listo! Ya ingresaste como ${session.user.email}.`, 'success');
     clearAuthHash();
-    redirectForSessionRole(session);
+    if (!redirectForSessionRole(session)) {
+      showLeadFeedback(
+        'Tu cuenta está autenticada pero todavía no tiene un rol asignado. Comunicate con la coordinación para obtener acceso.',
+        'error'
+      );
+    }
   }
 
   if (event === 'SIGNED_OUT') {
