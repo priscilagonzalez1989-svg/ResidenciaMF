@@ -1,16 +1,1281 @@
 <!DOCTYPE html>
 <html lang="es">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ResidenciaMF · Sistema de Evaluación</title>
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🩺</text></svg>" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ResidenciaMF — Sistema de Evaluación IA</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800;900&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --blue-dark:  #003087;
+  --blue-mid:   #0057B8;
+  --blue-light: #4DA8E0;
+  --blue-bg:    #EBF4FB;
+  --blue-bg2:   #D6EAF8;
+  --white:      #FFFFFF;
+  --text-dark:  #001A4D;
+  --text-body:  #2C3E6B;
+  --text-muted: #6A85A8;
+  --border:     rgba(0,48,135,0.12);
+  --radius:     10px;
+  --radius-lg:  18px;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: 'Barlow', sans-serif;
+  background: var(--white);
+  color: var(--text-body);
+  overflow-x: hidden;
+}
+
+.hidden { display: none !important; }
+
+/* ── NAV ── */
+nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--white);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 48px;
+  height: 64px;
+}
+
+.nav-logo {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  text-decoration: none;
+}
+
+.logo-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  background: var(--blue-mid);
+  border-radius: 8px;
+  color: white;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  text-align: center;
+}
+
+.logo-text {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--blue-dark);
+  letter-spacing: 0.02em;
+}
+
+.logo-sub {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-muted);
+  margin-top: 1px;
+  letter-spacing: 0.04em;
+}
+
+.nav-center {
+  display: flex;
+  gap: 32px;
+}
+
+.nav-center a {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-body);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+.nav-center a:hover { color: var(--blue-mid); }
+
+.nav-cta {
+  background: var(--blue-mid);
+  color: white !important;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 9px 22px;
+  border-radius: 8px;
+  text-decoration: none;
+  transition: background 0.2s;
+}
+.nav-cta:hover { background: var(--blue-dark) !important; }
+
+/* ── HERO ── */
+.hero {
+  background: linear-gradient(160deg, var(--blue-bg) 0%, var(--white) 55%);
+  min-height: 88vh;
+  display: grid;
+  grid-template-columns: 1fr 420px;
+  gap: 0;
+  align-items: stretch;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 48px;
+  padding-top: 72px;
+  padding-bottom: 72px;
+}
+
+.hero-left {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding-right: 56px;
+}
+
+.hero-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--blue-mid);
+  margin-bottom: 24px;
+}
+
+.eyebrow-line {
+  width: 24px;
+  height: 2px;
+  background: var(--blue-light);
+}
+
+.hero h1 {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: clamp(48px, 5.5vw, 72px);
+  font-weight: 800;
+  line-height: 1.0;
+  color: var(--blue-dark);
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+  margin-bottom: 12px;
+}
+
+.hero h1 span {
+  color: var(--blue-mid);
+}
+
+.hero-subtitle {
+  font-family: 'Barlow', sans-serif;
+  font-size: 20px;
+  font-weight: 300;
+  color: var(--text-body);
+  margin-bottom: 28px;
+  line-height: 1.5;
+  max-width: 440px;
+}
+
+.hero-desc {
+  font-size: 15px;
+  color: var(--text-muted);
+  line-height: 1.7;
+  max-width: 420px;
+  margin-bottom: 40px;
+}
+
+.hero-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.btn-primary {
+  background: var(--blue-mid);
+  color: white;
+  font-family: 'Barlow', sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 14px 28px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+  transition: background 0.2s, transform 0.15s;
+  letter-spacing: 0.01em;
+}
+.btn-primary:hover { background: var(--blue-dark); transform: translateY(-1px); }
+
+.btn-outline {
+  background: transparent;
+  color: var(--blue-mid);
+  font-family: 'Barlow', sans-serif;
+  font-size: 15px;
+  font-weight: 500;
+  padding: 13px 24px;
+  border-radius: 8px;
+  border: 1.5px solid var(--blue-mid);
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+  transition: all 0.2s;
+}
+.btn-outline:hover { background: var(--blue-bg); }
+
+.hero-stats {
+  display: flex;
+  gap: 36px;
+  margin-top: 52px;
+  padding-top: 36px;
+  border-top: 1px solid var(--border);
+}
+
+.stat-num {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 36px;
+  font-weight: 800;
+  color: var(--blue-dark);
+  line-height: 1;
+}
+
+.stat-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  line-height: 1.3;
+}
+
+/* ── LOGIN CARD ── */
+.login-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 36px 32px;
+  box-shadow: 0 4px 32px rgba(0,48,135,0.10);
+  align-self: center;
+}
+
+.login-header { text-align: center; margin-bottom: 28px; }
+
+.login-icon-wrap {
+  width: 60px;
+  height: 60px;
+  border-radius: 14px;
+  background: var(--blue-mid);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 14px;
+  font-size: 26px;
+}
+
+.login-header h2 {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--blue-dark);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.login-header p {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 3px;
+}
+
+.form-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.form-input {
+  width: 100%;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-family: 'Barlow', sans-serif;
+  font-size: 14px;
+  color: var(--text-dark);
+  outline: none;
+  background: var(--white);
+  margin-bottom: 14px;
+  transition: border-color 0.2s;
+}
+.form-input::placeholder { color: #B0C0D4; }
+.form-input:focus { border-color: var(--blue-mid); }
+
+.btn-login {
+  width: 100%;
+  background: var(--blue-mid);
+  color: white;
+  font-family: 'Barlow', sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 14px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition: background 0.2s;
+  margin-bottom: 10px;
+  letter-spacing: 0.01em;
+}
+.btn-login:hover { background: var(--blue-dark); }
+
+.divider-or {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+  margin: 12px 0;
+}
+.divider-or::before, .divider-or::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.btn-prueba {
+  width: 100%;
+  background: var(--blue-bg);
+  color: var(--blue-mid);
+  font-family: 'Barlow', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 13px;
+  border-radius: 8px;
+  border: 1.5px solid var(--blue-bg2);
+  cursor: pointer;
+  transition: all 0.2s;
+  letter-spacing: 0.01em;
+}
+.btn-prueba:hover { background: var(--blue-bg2); }
+
+.form-feedback,
+.access-feedback {
+  font-size: 13px;
+  line-height: 1.5;
+  margin-top: 12px;
+  border-radius: 8px;
+  padding: 11px 13px;
+}
+
+.form-feedback.success {
+  background: var(--blue-bg);
+  color: var(--blue-dark);
+  border: 1px solid rgba(0,87,184,0.18);
+}
+
+.access-feedback.error {
+  background: rgba(214, 58, 74, 0.08);
+  color: #A62A36;
+  border: 1px solid rgba(214, 58, 74, 0.18);
+}
+
+/* ── STRIP ── */
+.strip {
+  background: var(--blue-dark);
+  padding: 28px 0;
+}
+
+.strip-inner {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 32px;
+}
+
+.strip-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: white;
+}
+
+.strip-icon {
+  font-size: 22px;
+  opacity: 0.9;
+}
+
+.strip-text {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.strip-text strong {
+  display: block;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* ── FEATURES ── */
+.section {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 80px 48px;
+}
+
+.section-eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--blue-mid);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.section h2 {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: clamp(34px, 4vw, 48px);
+  font-weight: 800;
+  color: var(--blue-dark);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  max-width: 540px;
+  line-height: 1.0;
+  margin-bottom: 12px;
+}
+
+.section > p {
+  font-size: 16px;
+  color: var(--text-muted);
+  max-width: 500px;
+  line-height: 1.7;
+  margin-bottom: 52px;
+}
+
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.feat-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 28px 24px;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+  background: var(--white);
+}
+.feat-card:hover {
+  border-color: rgba(0,87,184,0.3);
+  box-shadow: 0 4px 24px rgba(0,48,135,0.08);
+  transform: translateY(-2px);
+}
+
+.feat-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 10px;
+  background: var(--blue-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  margin-bottom: 18px;
+}
+
+.feat-card h3 {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--blue-dark);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  margin-bottom: 8px;
+  line-height: 1.1;
+}
+
+.feat-card p {
+  font-size: 14px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+/* ── DEMO ── */
+.demo-wrap {
+  background: var(--blue-bg);
+  padding: 80px 0;
+}
+
+.demo-inner {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 48px;
+}
+
+.demo-header {
+  text-align: center;
+  margin-bottom: 48px;
+}
+
+.demo-locked {
+  max-width: 800px;
+  margin: 0 auto;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  box-shadow: 0 8px 40px rgba(0,48,135,0.10);
+  padding: 36px 32px;
+  text-align: center;
+}
+
+.demo-locked h3 {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 28px;
+  color: var(--blue-dark);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  margin-bottom: 10px;
+}
+
+.demo-locked p {
+  font-size: 15px;
+  color: var(--text-muted);
+  line-height: 1.7;
+  max-width: 480px;
+  margin: 0 auto 20px;
+}
+
+.demo-container {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  overflow: hidden;
+  max-width: 800px;
+  margin: 0 auto;
+  box-shadow: 0 8px 40px rgba(0,48,135,0.10);
+}
+
+.demo-topbar {
+  background: var(--blue-dark);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 24px;
+}
+
+.demo-dots { display: flex; gap: 6px; }
+.demo-dot { width: 10px; height: 10px; border-radius: 50%; }
+.dd-r { background: #FF5F57; }
+.dd-y { background: #FFBD2E; }
+.dd-g { background: #28C840; }
+
+.demo-title-bar {
+  flex: 1;
+  text-align: center;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.75);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.demo-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: var(--blue-light);
+  color: white;
+  padding: 3px 10px;
+  border-radius: 100px;
+}
+
+.chat-messages {
+  height: 440px;
+  overflow-y: auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  background: #FAFCFF;
+}
+.chat-messages::-webkit-scrollbar { width: 4px; }
+.chat-messages::-webkit-scrollbar-thumb { background: var(--blue-bg2); border-radius: 2px; }
+
+.msg { display: flex; gap: 12px; align-items: flex-start; }
+
+.msg-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 12px;
+  font-weight: 800;
+  flex-shrink: 0;
+  letter-spacing: 0.02em;
+}
+
+.avatar-ai {
+  background: var(--blue-mid);
+  color: white;
+}
+
+.avatar-user {
+  background: var(--blue-bg2);
+  color: var(--blue-dark);
+}
+
+.msg-bubble {
+  flex: 1;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px 16px;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--text-body);
+}
+
+.msg.user-msg .msg-bubble {
+  background: var(--blue-dark);
+  border-color: var(--blue-dark);
+  color: white;
+}
+
+.msg-sender {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 5px;
+}
+
+.sender-ai { color: var(--blue-mid); }
+.sender-user { color: rgba(255,255,255,0.6); }
+
+.msg-text { white-space: pre-wrap; }
+
+.typing-indicator {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+.typing-indicator span {
+  width: 7px;
+  height: 7px;
+  background: var(--blue-light);
+  border-radius: 50%;
+  animation: bounce 1.3s infinite;
+}
+.typing-indicator span:nth-child(2) { animation-delay: 0.22s; }
+.typing-indicator span:nth-child(3) { animation-delay: 0.44s; }
+
+@keyframes bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.35; }
+  30% { transform: translateY(-7px); opacity: 1; }
+}
+
+.quick-prompts {
+  padding: 12px 24px 16px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  background: #FAFCFF;
+  border-top: 1px solid var(--border);
+}
+
+.qp {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--blue-mid);
+  background: var(--blue-bg);
+  border: 1px solid var(--blue-bg2);
+  padding: 6px 14px;
+  border-radius: 100px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.qp:hover { background: var(--blue-bg2); border-color: rgba(0,87,184,0.3); }
+
+.chat-input-area {
+  display: flex;
+  gap: 10px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--white);
+}
+
+.chat-input {
+  flex: 1;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-family: 'Barlow', sans-serif;
+  font-size: 14px;
+  color: var(--text-dark);
+  outline: none;
+  transition: border-color 0.2s;
+  background: var(--white);
+}
+.chat-input::placeholder { color: #B0C0D4; }
+.chat-input:focus { border-color: var(--blue-mid); }
+
+.send-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  background: var(--blue-mid);
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+.send-btn:hover { background: var(--blue-dark); }
+.send-btn:disabled { background: var(--blue-bg2); cursor: not-allowed; }
+.send-btn svg { width: 18px; height: 18px; fill: white; }
+
+/* ── ACCESS MODAL ── */
+.access-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0, 26, 77, 0.48);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.access-panel {
+  width: min(100%, 420px);
+  background: var(--white);
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  box-shadow: 0 14px 48px rgba(0,48,135,0.18);
+  padding: 30px 26px 24px;
+}
+
+.access-panel h3 {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--blue-dark);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  margin-bottom: 8px;
+}
+
+.access-panel p {
+  font-size: 14px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  margin-bottom: 18px;
+}
+
+.access-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.access-actions .btn-outline,
+.access-actions .btn-primary {
+  flex: 1;
+  text-align: center;
+}
+
+/* ── FOOTER ── */
+footer {
+  background: var(--blue-dark);
+  color: rgba(255,255,255,0.65);
+  text-align: center;
+  padding: 40px 48px;
+  font-size: 13px;
+  line-height: 1.9;
+}
+
+.footer-brand {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 22px;
+  font-weight: 800;
+  color: white;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+footer small {
+  font-size: 11px;
+  opacity: 0.45;
+}
+
+@media (max-width: 960px) {
+  nav { padding: 0 20px; }
+  .hero {
+    grid-template-columns: 1fr;
+    padding: 48px 20px 56px;
+    gap: 28px;
+  }
+  .hero-left { padding-right: 0; }
+  .strip-inner,
+  .section,
+  .demo-inner,
+  footer { padding-left: 20px; padding-right: 20px; }
+  .strip-inner { flex-wrap: wrap; }
+  .features-grid { grid-template-columns: 1fr; }
+  .nav-center { display: none; }
+}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="#" class="nav-logo">
+    <div class="logo-mark">R<br>MF</div>
+    <div>
+      <div class="logo-text">ResidenciaMF</div>
+      <div class="logo-sub">Sistema de evaluación · Medicina Familiar</div>
+    </div>
+  </a>
+  <div class="nav-center">
+    <a href="#features">Funcionalidades</a>
+    <a href="#demo">Demo IA</a>
+    <a href="#">Ingresar</a>
+  </div>
+  <a href="#demo" class="nav-cta">Solicitar demostración →</a>
+</nav>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-left">
+    <div class="hero-eyebrow">
+      <div class="eyebrow-line"></div>
+      Residencia de Medicina Familiar · Córdoba
+    </div>
+    <h1>Tu tutor<br><span>de residencia</span><br>con IA</h1>
+    <p class="hero-subtitle">Evaluación adaptativa. Feedback clínico. Siempre disponible.</p>
+    <p class="hero-desc">
+      Preparación inteligente para el examen de ingreso y el cursado de la Residencia de Medicina Familiar en Córdoba. Casos clínicos reales, explicaciones basadas en evidencia y seguimiento por área de competencia.
+    </p>
+    <div class="hero-actions">
+      <a href="#demo" class="btn-primary">Solicitar demostración</a>
+      <a href="#features" class="btn-outline">Ver funcionalidades</a>
+    </div>
+    <div class="hero-stats">
+      <div>
+        <div class="stat-num">400+</div>
+        <div class="stat-label">Casos clínicos</div>
+      </div>
+      <div>
+        <div class="stat-num">12</div>
+        <div class="stat-label">Áreas de competencia</div>
+      </div>
+      <div>
+        <div class="stat-num">24/7</div>
+        <div class="stat-label">Disponible siempre</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LOGIN CARD -->
+  <div class="login-card">
+    <div class="login-header">
+      <div class="login-icon-wrap">🩺</div>
+      <h2>ResidenciaMF</h2>
+      <p>Sistema de evaluación · Medicina Familiar</p>
+    </div>
+
+    <label class="form-label">Email institucional</label>
+    <input type="email" class="form-input" id="leadEmail" placeholder="tuemail@hospital.gov.ar">
+
+    <button class="btn-login" type="button" onclick="submitLeadForm()">Enviar link de acceso</button>
+    <div class="divider-or">o</div>
+    <button class="btn-prueba" type="button" onclick="openAccessModal()">
+      Solicitar una demostración
+    </button>
+    <div id="formFeedback" class="form-feedback success hidden">¡Listo! Te contactamos en menos de 24hs.</div>
+  </div>
+</div>
+
+<!-- STRIP -->
+<div class="strip">
+  <div class="strip-inner">
+    <div class="strip-item">
+      <div class="strip-icon">🏥</div>
+      <div class="strip-text">
+        <strong>Córdoba, Argentina</strong>
+        Residencia de Medicina Familiar
+      </div>
+    </div>
+    <div class="strip-item">
+      <div class="strip-icon">🧠</div>
+      <div class="strip-text">
+        <strong>IA Adaptativa</strong>
+        Aprende con tus errores
+      </div>
+    </div>
+    <div class="strip-item">
+      <div class="strip-icon">📋</div>
+      <div class="strip-text">
+        <strong>Curriculum oficial</strong>
+        Ministerio de Salud Córdoba
+      </div>
+    </div>
+    <div class="strip-item">
+      <div class="strip-icon">📊</div>
+      <div class="strip-text">
+        <strong>Progreso en tiempo real</strong>
+        Dashboard por competencia
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- FEATURES -->
+<div class="section" id="features">
+  <div class="section-eyebrow">
+    <div class="eyebrow-line"></div>
+    Funcionalidades
+  </div>
+  <h2>Todo lo que<br>necesitás para<br>prepararte</h2>
+  <p>Diseñado específicamente para residentes de Medicina Familiar, con el curriculum del Ministerio de Salud de Córdoba.</p>
+
+  <div class="features-grid">
+    <div class="feat-card">
+      <div class="feat-icon">🧠</div>
+      <h3>Evaluación<br>adaptativa</h3>
+      <p>El sistema identifica tus áreas débiles y ajusta la dificultad. Más práctica donde más la necesitás.</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon">📋</div>
+      <h3>Casos clínicos<br>reales</h3>
+      <p>Más de 400 casos del nivel primario de atención: crónicos, urgencias, pediatría, salud mental, mujer y familia.</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon">📊</div>
+      <h3>Dashboard<br>de progreso</h3>
+      <p>Grilla por competencias con acierto, racha, estado por tema y sugerencias de estudio priorizadas por IA.</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon">💬</div>
+      <h3>Feedback clínico<br>explicado</h3>
+      <p>Cada respuesta incorrecta tiene explicación desde la evidencia. No solo "incorrecto". Aprendés de cada error.</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon">🎯</div>
+      <h3>Simulacro<br>de examen</h3>
+      <p>Modo cronometrado con la estructura real del examen de ingreso a la Residencia de Medicina Familiar de Córdoba.</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon">📱</div>
+      <h3>Estudia desde<br>cualquier lugar</h3>
+      <p>Optimizado para mobile. Aprovechá el tiempo entre guardias, traslados o cualquier momento libre.</p>
+    </div>
+  </div>
+</div>
+
+<!-- DEMO -->
+<div class="demo-wrap" id="demo">
+  <div class="demo-inner">
+    <div class="demo-header">
+      <div class="section-eyebrow" style="justify-content:center;">
+        <div class="eyebrow-line"></div>
+        Demo interactiva
+        <div class="eyebrow-line"></div>
+      </div>
+      <h2 style="margin: 0 auto 12px; text-align:center;">Hablá con<br>el tutor de IA</h2>
+      <p style="font-size:16px; color:var(--text-muted); max-width:460px; margin:0 auto; line-height:1.7; text-align:center;">
+        Preguntá sobre clínica, pedí un caso, o consultá sobre el examen. Así funciona ResidenciaMF.
+      </p>
+    </div>
+
+    <div class="demo-locked" id="demoLocked">
+      <h3>Acceso restringido</h3>
+      <p>La demostración del tutor de IA se habilita con un código de acceso. Si recibiste tu código, ingresalo para continuar.</p>
+      <button class="btn-primary" type="button" onclick="openAccessModal()">Ingresar código de acceso</button>
+    </div>
+
+    <div class="demo-container hidden" id="demoContainer">
+      <div class="demo-topbar">
+        <div class="demo-dots">
+          <div class="demo-dot dd-r"></div>
+          <div class="demo-dot dd-y"></div>
+          <div class="demo-dot dd-g"></div>
+        </div>
+        <div class="demo-title-bar">Tutor IA — ResidenciaMF</div>
+        <span class="demo-badge">Demo</span>
+      </div>
+
+      <div class="chat-messages" id="chatMessages">
+        <div class="msg">
+          <div class="msg-avatar avatar-ai">MF</div>
+          <div class="msg-bubble">
+            <div class="msg-sender sender-ai">Tutor ResidenciaMF</div>
+            <div class="msg-text">¡Hola! Soy tu tutor de residencia de Medicina Familiar. Puedo ayudarte con casos clínicos, explicaciones de temas del examen, o dudas sobre el programa en Córdoba.
+
+¿Por dónde empezamos?</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="quick-prompts" id="quickPrompts">
+        <span class="qp" onclick="sendQuick(this)">Dame un caso de HTA en APS</span>
+        <span class="qp" onclick="sendQuick(this)">¿Qué entra en el examen de ingreso?</span>
+        <span class="qp" onclick="sendQuick(this)">Caso de diabético descompensado</span>
+        <span class="qp" onclick="sendQuick(this)">Diagnóstico diferencial de disnea</span>
+      </div>
+
+      <div class="chat-input-area">
+        <input
+          type="text"
+          class="chat-input"
+          id="chatInput"
+          placeholder="Escribí tu pregunta o pedí un caso clínico..."
+          onkeydown="if(event.key==='Enter') sendMessage()"
+        >
+        <button class="send-btn" id="sendBtn" onclick="sendMessage()">
+          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M22 2L11 13M22 2L15 22L11 13L2 9L22 2Z"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="access-modal hidden" id="accessModal" aria-hidden="true">
+  <div class="access-panel">
+    <h3>Ingresar código</h3>
+    <p>Ingresá tu código de acceso para habilitar la demo del tutor de IA.</p>
+    <label class="form-label">Código de acceso</label>
+    <input type="password" class="form-input" id="accessCodeInput" placeholder="DEMO2026" onkeydown="if(event.key==='Enter') verifyAccessCode()">
+    <div id="accessFeedback" class="access-feedback error hidden"></div>
+    <div class="access-actions">
+      <button class="btn-outline" type="button" onclick="closeAccessModal()">Cancelar</button>
+      <button class="btn-primary" type="button" onclick="verifyAccessCode()">Ingresar</button>
+    </div>
+  </div>
+</div>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-brand">ResidenciaMF</div>
+  Plataforma de preparación · Residencia de Medicina Familiar · Córdoba, Argentina<br>
+  Prototipo 2026<br><br>
+  <small>Esta plataforma es una herramienta de apoyo educativo independiente. No reemplaza la formación oficial de la residencia ni tiene vinculación institucional formal con el Ministerio de Salud de Córdoba.</small>
+</footer>
+
+<script>
+const SYSTEM_PROMPT = `Sos el tutor de IA de ResidenciaMF, una plataforma de preparación para residentes de Medicina Familiar en Córdoba, Argentina.
+
+Tu rol:
+- Ayudar a residentes y postulantes a prepararse para el examen de ingreso a la Residencia de Medicina Familiar en Córdoba
+- Presentar casos clínicos del nivel primario de atención cuando te los pidan
+- Explicar temas clínicos con orientación hacia la atención primaria (APS)
+- Dar feedback formativo cuando el residente responde mal
+- Motivar el aprendizaje con un tono directo, cálido y profesional
+
+Temas que dominás:
+- Clínica médica del adulto: HTA, DBT, dislipemia, cardiopatía, EPOC, asma
+- Pediatría en APS: control de niño sano, vacunas, IRAS, diarrea
+- Salud mental en APS: depresión, ansiedad, consumo problemático
+- Salud de la mujer: anticonceptivos, control prenatal, prevención oncológica
+- Urgencias en APS y guardia
+- Programa de la Residencia de Medicina Familiar de Córdoba
+- Prevención cuaternaria (sobre-medicación, sobre-diagnóstico)
+
+Formato de respuesta:
+- Respondé siempre en español argentino (voseo, registro semi-formal)
+- Si presentás un caso clínico, estructuralo así:
+  📋 CASO CLÍNICO
+  [edad, sexo, motivo de consulta, antecedentes, signos vitales si aplica, síntomas actuales]
+  ❓ Pregunta: [pregunta concreta sobre diagnóstico, tratamiento, o conducta]
+  
+- Cuando expliques conceptos, usá estructura clara pero sin ser robótico
+- Sé conciso pero completo. No des parrafadas sin necesidad.
+- Si el residente responde un caso, evaluá la respuesta con criterio clínico real y dá feedback específico.
+
+Límites:
+- No inventés guidelines inexistentes
+- Si algo está en debate, decilo
+- No des recetas sin contexto completo`;
+
+const DEMO_ACCESS_CODE = 'DEMO2026';
+const DEMO_CONTACT_EMAIL = 'priscila-gonzalez@live.com';
+
+const messagesHistory = [];
+let demoUnlocked = false;
+
+function submitLeadForm() {
+  const feedback = document.getElementById('formFeedback');
+  feedback.classList.remove('hidden');
+}
+
+function openAccessModal() {
+  const modal = document.getElementById('accessModal');
+  const input = document.getElementById('accessCodeInput');
+  const feedback = document.getElementById('accessFeedback');
+  feedback.classList.add('hidden');
+  feedback.textContent = '';
+  modal.classList.remove('hidden');
+  modal.setAttribute('aria-hidden', 'false');
+  setTimeout(() => input.focus(), 0);
+}
+
+function closeAccessModal() {
+  const modal = document.getElementById('accessModal');
+  modal.classList.add('hidden');
+  modal.setAttribute('aria-hidden', 'true');
+}
+
+function verifyAccessCode() {
+  const input = document.getElementById('accessCodeInput');
+  const feedback = document.getElementById('accessFeedback');
+  const code = input.value.trim();
+
+  if (code === DEMO_ACCESS_CODE) {
+    demoUnlocked = true;
+    document.getElementById('demoLocked').classList.add('hidden');
+    document.getElementById('demoContainer').classList.remove('hidden');
+    feedback.classList.add('hidden');
+    input.value = '';
+    closeAccessModal();
+    document.getElementById('demo').scrollIntoView({ behavior: 'smooth' });
+    return;
+  }
+
+  feedback.textContent = `Código incorrecto. Solicitá tu acceso a ${DEMO_CONTACT_EMAIL}`;
+  feedback.classList.remove('hidden');
+}
+
+function ensureDemoAccess() {
+  if (demoUnlocked) return true;
+  openAccessModal();
+  return false;
+}
+
+async function sendMessage() {
+  if (!ensureDemoAccess()) return;
+
+  const input = document.getElementById('chatInput');
+  const text = input.value.trim();
+  if (!text) return;
+
+  addMessage('user', text);
+  input.value = '';
+  messagesHistory.push({ role: 'user', content: text });
+
+  document.getElementById('sendBtn').disabled = true;
+  document.getElementById('quickPrompts').style.display = 'none';
+
+  const typingId = addTyping();
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        system: SYSTEM_PROMPT,
+        messages: messagesHistory
+      })
+    });
+
+    const data = await res.json();
+    removeTyping(typingId);
+
+    const aiText = data.content?.[0]?.text || 'Error al obtener respuesta.';
+    addMessage('ai', aiText);
+    messagesHistory.push({ role: 'assistant', content: aiText });
+
+  } catch (err) {
+    removeTyping(typingId);
+    addMessage('ai', 'Hubo un error al conectar. Revisá tu conexión e intentá de nuevo.');
+  }
+
+  document.getElementById('sendBtn').disabled = false;
+}
+
+function sendQuick(el) {
+  if (!ensureDemoAccess()) return;
+  document.getElementById('chatInput').value = el.textContent;
+  sendMessage();
+}
+
+function addMessage(role, text) {
+  const container = document.getElementById('chatMessages');
+  const isAI = role === 'ai';
+
+  const msg = document.createElement('div');
+  msg.className = 'msg' + (isAI ? '' : ' user-msg');
+
+  const avatar = document.createElement('div');
+  avatar.className = 'msg-avatar ' + (isAI ? 'avatar-ai' : 'avatar-user');
+  avatar.textContent = isAI ? 'MF' : 'Yo';
+
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-bubble';
+
+  const sender = document.createElement('div');
+  sender.className = 'msg-sender ' + (isAI ? 'sender-ai' : 'sender-user');
+  sender.textContent = isAI ? 'Tutor ResidenciaMF' : 'Residente';
+
+  const textDiv = document.createElement('div');
+  textDiv.className = 'msg-text';
+  textDiv.textContent = text;
+
+  bubble.appendChild(sender);
+  bubble.appendChild(textDiv);
+  msg.appendChild(avatar);
+  msg.appendChild(bubble);
+
+  container.appendChild(msg);
+  container.scrollTop = container.scrollHeight;
+}
+
+function addTyping() {
+  const container = document.getElementById('chatMessages');
+  const id = 'typing-' + Date.now();
+  const msg = document.createElement('div');
+  msg.className = 'msg';
+  msg.id = id;
+  msg.innerHTML = `
+    <div class="msg-avatar avatar-ai">MF</div>
+    <div class="msg-bubble" style="padding:18px 20px;">
+      <div class="typing-indicator">
+        <span></span><span></span><span></span>
+      </div>
+    </div>`;
+  container.appendChild(msg);
+  container.scrollTop = container.scrollHeight;
+  return id;
+}
+
+function removeTyping(id) {
+  const el = document.getElementById(id);
+  if (el) el.remove();
+}
+</script>
+</body>
 </html>
