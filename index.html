@@ -1143,8 +1143,8 @@ function showLeadFeedback(message, type = 'success') {
 }
 
 function clearAuthHash() {
-  if (!window.location.hash) return;
-  history.replaceState({}, document.title, window.location.pathname + window.location.search);
+  const cleanUrl = window.location.pathname;
+  history.replaceState({}, document.title, cleanUrl);
 }
 
 function handleAuthHashError() {
@@ -1170,6 +1170,46 @@ function handleAuthHashError() {
   }
 
   return false;
+}
+
+async function processMagicLinkCallback() {
+  const searchParams = new URLSearchParams(window.location.search);
+  const code = searchParams.get('code');
+
+  if (code) {
+    const { error } = await supabaseClient.auth.exchangeCodeForSession(code);
+    if (error) {
+      showLeadFeedback(error.message, 'error');
+      clearAuthHash();
+      return false;
+    }
+    return true;
+  }
+
+  const rawHash = window.location.hash.startsWith('#')
+    ? window.location.hash.slice(1)
+    : window.location.hash;
+
+  if (!rawHash) return false;
+
+  const hashParams = new URLSearchParams(rawHash);
+  const accessToken = hashParams.get('access_token');
+  const refreshToken = hashParams.get('refresh_token');
+
+  if (!accessToken || !refreshToken) return false;
+
+  const { error } = await supabaseClient.auth.setSession({
+    access_token: accessToken,
+    refresh_token: refreshToken,
+  });
+
+  if (error) {
+    showLeadFeedback(error.message, 'error');
+    clearAuthHash();
+    return false;
+  }
+
+  return true;
 }
 
 async function hydrateAuthSession() {
@@ -1359,8 +1399,19 @@ function removeTyping(id) {
   if (el) el.remove();
 }
 
-handleAuthHashError();
-hydrateAuthSession();
+async function initLandingAuth() {
+  const hadAccessDenied = handleAuthHashError();
+  if (hadAccessDenied) return;
+
+  const callbackProcessed = await processMagicLinkCallback();
+  await hydrateAuthSession();
+
+  if (callbackProcessed) {
+    clearAuthHash();
+  }
+}
+
+initLandingAuth();
 
 supabaseClient.auth.onAuthStateChange((event, session) => {
   if (event === 'SIGNED_IN' && session?.user?.email) {
