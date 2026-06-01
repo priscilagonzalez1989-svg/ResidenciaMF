@@ -8,6 +8,7 @@ import ResidentesBoard from "./admin/ResidentesBoard";
 import TableroPanel from "./admin/TableroPanel";
 import PracticeMode from "./exams/PracticeMode";
 import ResidentExamApp from "./exams/ResidentExamApp";
+import Home from "./pages/Home";
 
 // ── ORDEN DE DOMINIOS (flujo de consulta real) ───────────────────────────────
 const ORDEN_DOMINIOS = [
@@ -594,7 +595,7 @@ export default function App() {
     if (cargandoSesion) return;
 
     if (!usuario) {
-      if (pathname !== "/login") setPathname("/login");
+      if (pathname !== "/" && pathname !== "/login") setPathname("/");
       return;
     }
 
@@ -646,7 +647,7 @@ export default function App() {
     await supabase.auth.signOut();
     setUsuario(null);
     setResidentFocus(null);
-    navigate("/login");
+    navigate("/");
   };
 
   const renderAdminSection = () => {
@@ -744,7 +745,10 @@ export default function App() {
     );
   }
 
-  if (!usuario) return <Login />;
+  if (!usuario) {
+    if (pathname === "/login") return <Login />;
+    return <Home onNavigateLogin={() => navigate("/login")} />;
+  }
   if (usuario.rol === "pendiente") return <PendingAuthorization onLogout={cerrarSesion} />;
   if (usuario.rol === "admin") return renderAdminSection();
   if (usuario.rol === "docente") return renderDocenteSection();
