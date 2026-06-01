@@ -297,7 +297,7 @@ function Login() {
     const { error: otpError } = await supabase.auth.signInWithOtp({
       email: normalizado,
       options: {
-        emailRedirectTo: window.location.origin,
+        emailRedirectTo: "https://www.examenmedfam.online",
       },
     });
 
