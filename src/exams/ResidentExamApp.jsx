@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../supabase";
 import { buildQuestionSteps, stepKey } from "./questionFlow";
+import {
+  createAttemptFromTemplate,
+  fetchResidentActiveTemplates,
+  fetchResidentTemplateAttempts,
+  fetchTemplateAssignments,
+  summarizeResidentTemplate,
+} from "./cardiologyExamTemplates";
 
 const ROTACIONES = [
   { key: "medicina-familiar", label: "Medicina Familiar", bancoRotaciones: ["Medicina Familiar"], allowAdditional: true },
@@ -281,14 +288,24 @@ async function loadExamQuestions(examenId) {
   if (error) throw error;
 
   const numeros = (asignadas || []).map((item) => item.pregunta_numero);
-  if (!numeros.length) return [];
+  const ids = (asignadas || []).map((item) => item.pregunta_id).filter(Boolean);
+  if (!numeros.length && !ids.length) return [];
 
-  const { data: questions, error: questionsError } = await supabase.from("banco_preguntas").select("*").in("numero", numeros);
-  if (questionsError) throw questionsError;
+  let questions = [];
+  if (ids.length) {
+    const { data, error: questionsError } = await supabase.from("banco_preguntas").select("*").in("id", ids);
+    if (questionsError) throw questionsError;
+    questions = data || [];
+  } else {
+    const { data, error: questionsError } = await supabase.from("banco_preguntas").select("*").in("numero", numeros);
+    if (questionsError) throw questionsError;
+    questions = data || [];
+  }
 
+  const byId = new Map((questions || []).map((question) => [question.id, question]));
   const byNumero = new Map((questions || []).map((question) => [question.numero, question]));
   return (asignadas || []).map((item) => ({
-    ...byNumero.get(item.pregunta_numero),
+    ...(byId.get(item.pregunta_id) || byNumero.get(item.pregunta_numero)),
     es_adicional: item.es_adicional,
     orden: item.orden,
   }));
@@ -368,6 +385,7 @@ function firstUnansweredIndex(steps, answersMap) {
 export default function ResidentExamApp({ user, onLogout }) {
   const [resident, setResident] = useState(null);
   const [rotationStates, setRotationStates] = useState([]);
+  const [templateCards, setTemplateCards] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [screen, setScreen] = useState("overview");
@@ -406,13 +424,31 @@ export default function ResidentExamApp({ user, onLogout }) {
         if (!active) return;
         if (!residente) throw new Error("Tu cuenta de residente todavía no está vinculada a un registro en la tabla residentes.");
         setResident(residente);
-        const exams = await fetchRotationExams(residente.id);
+        const [exams, templates] = await Promise.all([
+          fetchRotationExams(residente.id),
+          fetchResidentActiveTemplates(residente.anio),
+        ]);
         if (!active) return;
         const grouped = ROTACIONES.map((rotation) => ({
           ...rotation,
           exams: exams.filter((exam) => exam.rotacion === rotation.label),
         })).map((rotation) => ({ ...rotation, summary: getRotationStatus(rotation.exams) }));
         setRotationStates(grouped);
+        const assignmentsEntries = await Promise.all(
+          templates.map(async (template) => [template.id, await fetchTemplateAssignments(template.id)])
+        );
+        const attempts = await fetchResidentTemplateAttempts(residente.id, templates.map((item) => item.id));
+        if (!active) return;
+        const assignmentsByTemplate = Object.fromEntries(assignmentsEntries);
+        setTemplateCards(
+          templates.map((template) =>
+            summarizeResidentTemplate(
+              template,
+              attempts.filter((attempt) => attempt.examen_padre_id === template.id),
+              assignmentsByTemplate[template.id] || []
+            )
+          )
+        );
       } catch (err) {
         if (!active) return;
         setError(err.message);
@@ -502,6 +538,23 @@ export default function ResidentExamApp({ user, onLogout }) {
       exams: exams.filter((exam) => exam.rotacion === rotation.label),
     })).map((rotation) => ({ ...rotation, summary: getRotationStatus(rotation.exams) }));
     setRotationStates(grouped);
+    if (resident?.anio) {
+      const templates = await fetchResidentActiveTemplates(resident.anio);
+      const assignmentsEntries = await Promise.all(
+        templates.map(async (template) => [template.id, await fetchTemplateAssignments(template.id)])
+      );
+      const attempts = await fetchResidentTemplateAttempts(residenteId, templates.map((item) => item.id));
+      const assignmentsByTemplate = Object.fromEntries(assignmentsEntries);
+      setTemplateCards(
+        templates.map((template) =>
+          summarizeResidentTemplate(
+            template,
+            attempts.filter((attempt) => attempt.examen_padre_id === template.id),
+            assignmentsByTemplate[template.id] || []
+          )
+        )
+      );
+    }
   }
 
   function returnToOverview() {
@@ -583,6 +636,66 @@ export default function ResidentExamApp({ user, onLogout }) {
 
       setCurrentExam(exam);
       setBaseQuestions(selectedQuestions.map((question, index) => ({ ...question, orden: index + 1, es_adicional: false })));
+      setAdditionalQuestions([]);
+      setAnswers({});
+      setGrading({});
+      setCurrentIndex(0);
+      setPhase("base");
+      setTimeLeft(EXAM_DURATION_SECONDS);
+      setTimeExpired(false);
+      setExitSubmitting(false);
+      setResultMeta(null);
+      setScreen("exam");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function startTemplateExam(templateCard) {
+    if (!resident) return;
+    setBusy(true);
+    setError("");
+
+    try {
+      if (templateCard.latestAttempt?.estado === "en_curso") {
+        const exam = templateCard.latestAttempt;
+        const [questions, responses] = await Promise.all([loadExamQuestions(exam.id), loadExamResponses(exam.id)]);
+        const answersMap = buildAnswerMap(responses || []);
+        const splitBase = questions.filter((question) => !question.es_adicional);
+        const splitAdditional = questions.filter((question) => question.es_adicional);
+        const baseSteps = buildQuestionSteps(splitBase, "base");
+        const additionalSteps = buildQuestionSteps(splitAdditional, "additional");
+        const resumePhase =
+          firstUnansweredIndex(baseSteps, answersMap) >= baseSteps.length - 1 &&
+          splitAdditional.length &&
+          baseSteps.every((step) => String(answersMap[step.key] || "").trim())
+            ? "additional"
+            : "base";
+        const resumeIndex = resumePhase === "additional" ? firstUnansweredIndex(additionalSteps, answersMap) : firstUnansweredIndex(baseSteps, answersMap);
+
+        setCurrentExam(exam);
+        setBaseQuestions(splitBase);
+        setAdditionalQuestions(splitAdditional);
+        setAnswers(answersMap);
+        setGrading({});
+        setCurrentIndex(resumeIndex);
+        setPhase(resumePhase);
+        setTimeLeft(Math.max(60, EXAM_DURATION_SECONDS - Math.floor((Date.now() - new Date(exam.iniciado_at).getTime()) / 1000)));
+        setTimeExpired(false);
+        setExitSubmitting(false);
+        setScreen("exam");
+        return;
+      }
+
+      const { attempt, questions } = await createAttemptFromTemplate({
+        template: templateCard.template,
+        residenteId: resident.id,
+      });
+
+      setCurrentExam(attempt);
+      setBaseQuestions(questions.map((question, index) => ({ ...question, orden: question.orden || index + 1, es_adicional: false })));
       setAdditionalQuestions([]);
       setAnswers({});
       setGrading({});
@@ -1042,6 +1155,54 @@ export default function ResidentExamApp({ user, onLogout }) {
         {error && (
           <div style={{ background: "#fff3f3", border: "1px solid #f0b8b8", borderRadius: 16, padding: "16px 20px", color: "#8f2d2d" }}>
             {error}
+          </div>
+        )}
+
+        {templateCards.length > 0 && (
+          <div style={{ display: "grid", gap: 14 }}>
+            <div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: "#0f2744", marginBottom: 6 }}>Exámenes programados</div>
+              <div style={{ color: "#6c7d90", fontSize: 14 }}>Evaluaciones activadas por coordinación para tu año de residencia.</div>
+            </div>
+            {templateCards.map((card) => (
+              <div key={card.template.id} style={{ background: "#fff", borderRadius: 18, border: "1px solid #e2e8f0", padding: isMobile ? "18px 16px" : "22px 24px", display: "flex", alignItems: isMobile ? "stretch" : "center", justifyContent: "space-between", gap: 20, flexDirection: isMobile ? "column" : "row" }}>
+                <div style={{ display: "grid", gap: 8 }}>
+                  <div style={{ fontSize: isMobile ? 22 : 20, fontWeight: 800, color: "#0f2744" }}>{card.template.titulo || card.template.rotacion}</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <HeaderBadge text={card.status} color="#0f2744" background="#eef4fb" />
+                    <HeaderBadge text={`${card.questionCount} pregunta${card.questionCount === 1 ? "" : "s"} visibles`} color="#506478" background="#f4f7fb" />
+                    <HeaderBadge text={`${formatScore(card.totalScore)} pts`} color="#166534" background="#dcfce7" />
+                    {card.isRecoveryTemplate ? <HeaderBadge text="Recuperatorio" color="#7c2d12" background="#ffedd5" /> : null}
+                  </div>
+                  <div style={{ color: "#6c7d90", fontSize: 14 }}>
+                    Dominios: {card.domains.join(" · ") || "Sin dominios"} · Disponible hasta {card.template.fecha_fin ? new Date(card.template.fecha_fin).toLocaleString("es-AR") : "sin cierre"}
+                  </div>
+                  {card.latestAttempt?.puntaje_total != null && (
+                    <div style={{ color: "#166534", fontSize: 14, fontWeight: 700 }}>
+                      Último puntaje obtenido: {formatScore(card.latestAttempt.puntaje_total)}
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={() => startTemplateExam(card)}
+                  disabled={!card.canStart || busy}
+                  style={{
+                    background: card.canStart ? "#0f2744" : "#e2e8f0",
+                    color: card.canStart ? "#fff" : "#708193",
+                    border: "none",
+                    borderRadius: 12,
+                    minHeight: 48,
+                    width: isMobile ? "100%" : "auto",
+                    padding: "14px 22px",
+                    fontSize: 16,
+                    fontWeight: 700,
+                    cursor: card.canStart && !busy ? "pointer" : "not-allowed",
+                  }}
+                >
+                  {card.action}
+                </button>
+              </div>
+            ))}
           </div>
         )}
 

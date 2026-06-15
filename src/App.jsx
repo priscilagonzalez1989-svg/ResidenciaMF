@@ -555,6 +555,7 @@ export default function App() {
         normalizado;
 
       return {
+        id: supabaseUser?.id || null,
         nombre: displayName,
         rol: role || "pendiente",
         avatar: initialsFromName(displayName),
@@ -664,7 +665,7 @@ export default function App() {
     } else if (adminPath === "/admin/banco-preguntas") {
       content = <AdminBancoPreguntas />;
     } else if (adminPath === "/admin/examenes") {
-      content = <ExamenesPanel />;
+      content = <ExamenesPanel user={usuario} />;
     } else if (adminPath === "/admin/residentes") {
       content = (
         <ResidentesBoard

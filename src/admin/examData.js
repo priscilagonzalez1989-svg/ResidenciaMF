@@ -103,7 +103,7 @@ export async function loadExamDataset() {
 
   if (examsError) throw examsError;
 
-  const examRows = exams || [];
+  const examRows = (exams || []).filter((item) => item.residente_id);
   if (!examRows.length) {
     return { exams: [], residents: [] };
   }
@@ -121,18 +121,27 @@ export async function loadExamDataset() {
   if (examQuestionsError) throw examQuestionsError;
   if (examAnswersError) throw examAnswersError;
 
-  const questionNumbers = [...new Set((examQuestions || []).map((item) => item.pregunta_numero))];
+  const questionNumbers = [...new Set((examQuestions || []).map((item) => item.pregunta_numero).filter(Boolean))];
+  const questionIds = [...new Set((examQuestions || []).map((item) => item.pregunta_id).filter(Boolean))];
   let bancoQuestions = [];
-  if (questionNumbers.length) {
+  if (questionIds.length) {
     const { data: questions, error: questionsError } = await supabase
       .from("banco_preguntas")
-      .select("numero, enunciado, dominio, puntaje_sugerido, rotacion, lista_cotejo, imagen_url")
+      .select("id, numero, enunciado, dominio, puntaje_sugerido, rotacion, lista_cotejo, imagen_url")
+      .in("id", questionIds);
+    if (questionsError) throw questionsError;
+    bancoQuestions = questions || [];
+  } else if (questionNumbers.length) {
+    const { data: questions, error: questionsError } = await supabase
+      .from("banco_preguntas")
+      .select("id, numero, enunciado, dominio, puntaje_sugerido, rotacion, lista_cotejo, imagen_url")
       .in("numero", questionNumbers);
     if (questionsError) throw questionsError;
     bancoQuestions = questions || [];
   }
 
   const residentsById = new Map((residents || []).map((item) => [item.id, item]));
+  const questionsById = new Map(bancoQuestions.map((item) => [item.id, item]));
   const questionsByNumber = new Map(bancoQuestions.map((item) => [item.numero, item]));
   const assignedByExam = (examQuestions || []).reduce((acc, item) => {
     if (!acc[item.examen_id]) acc[item.examen_id] = [];
@@ -146,7 +155,7 @@ export async function loadExamDataset() {
 
   const enrichedExams = examRows.map((exam) => {
     const assignedQuestions = (assignedByExam[exam.id] || []).map((assigned) => ({
-      ...questionsByNumber.get(assigned.pregunta_numero),
+      ...(questionsById.get(assigned.pregunta_id) || questionsByNumber.get(assigned.pregunta_numero)),
       es_adicional: assigned.es_adicional,
       orden: assigned.orden,
     }));
