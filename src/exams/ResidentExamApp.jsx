@@ -534,6 +534,10 @@ export default function ResidentExamApp({ user, onLogout }) {
 
   const domainProgress = useMemo(() => getDomainProgress(allSteps, currentIndex), [allSteps, currentIndex]);
   const canContinue = currentText.trim().length > 0 && !timeExpired && !exitSubmitting;
+  const visibleTemplateCards = useMemo(
+    () => templateCards.filter((card) => !card.isRecoveryTemplate),
+    [templateCards]
+  );
 
   async function refreshRotationStates(residenteId = resident?.id) {
     if (!residenteId) return;
@@ -1163,36 +1167,36 @@ export default function ResidentExamApp({ user, onLogout }) {
           </div>
         )}
 
-        {templateCards.length > 0 && (
+        {visibleTemplateCards.length > 0 && (
           <div style={{ display: "grid", gap: 14 }}>
             <div>
               <div style={{ fontSize: 22, fontWeight: 800, color: "#0f2744", marginBottom: 6 }}>Exámenes programados</div>
               <div style={{ color: "#6c7d90", fontSize: 14 }}>Evaluaciones activadas por coordinación para tu año de residencia.</div>
             </div>
-            {templateCards.map((card) => (
+            {visibleTemplateCards.map((card) => (
               <div key={card.template.id} style={{ background: "#fff", borderRadius: 18, border: "1px solid #e2e8f0", padding: isMobile ? "18px 16px" : "22px 24px", display: "flex", alignItems: isMobile ? "stretch" : "center", justifyContent: "space-between", gap: 20, flexDirection: isMobile ? "column" : "row" }}>
-                <div style={{ display: "grid", gap: 8 }}>
-                  <div style={{ fontSize: isMobile ? 22 : 20, fontWeight: 800, color: "#0f2744" }}>{card.template.titulo || card.template.rotacion}</div>
+                <div>
+                  <div style={{ fontSize: isMobile ? 22 : 20, fontWeight: 800, color: "#0f2744", marginBottom: 6 }}>
+                    {card.template.rotacion || "Cardiología"}
+                  </div>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     <HeaderBadge text={card.status} color="#0f2744" background="#eef4fb" />
-                    <HeaderBadge text={`${card.questionCount} pregunta${card.questionCount === 1 ? "" : "s"} visibles`} color="#506478" background="#f4f7fb" />
-                    <HeaderBadge text={`${formatScore(card.totalScore)} pts`} color="#166534" background="#dcfce7" />
-                    {card.isRecoveryTemplate ? <HeaderBadge text="Recuperatorio" color="#7c2d12" background="#ffedd5" /> : null}
+                    <HeaderBadge text={`${card.questionCount} pregunta${card.questionCount === 1 ? "" : "s"}`} color="#506478" background="#f4f7fb" />
+                    {card.latestAttempt?.puntaje_total != null ? (
+                      <HeaderBadge text={`Último puntaje: ${formatScore(card.latestAttempt.puntaje_total)}`} color="#166534" background="#dcfce7" />
+                    ) : (
+                      <HeaderBadge text={`${formatScore(card.totalScore)} pts`} color="#166534" background="#dcfce7" />
+                    )}
                   </div>
-                  <div style={{ color: "#6c7d90", fontSize: 14 }}>
+                  <div style={{ color: "#6c7d90", fontSize: 14, marginTop: 8 }}>
                     Dominios: {card.domains.join(" · ") || "Sin dominios"} · Disponible hasta {card.template.fecha_fin ? new Date(card.template.fecha_fin).toLocaleString("es-AR") : "sin cierre"}
                   </div>
-                  {card.latestAttempt?.puntaje_total != null && (
-                    <div style={{ color: "#166534", fontSize: 14, fontWeight: 700 }}>
-                      Último puntaje obtenido: {formatScore(card.latestAttempt.puntaje_total)}
-                    </div>
-                  )}
                 </div>
                 <button
                   onClick={() => startTemplateExam(card)}
                   disabled={!card.canStart || busy}
                   style={{
-                    background: card.canStart ? "#0f2744" : "#e2e8f0",
+                    background: card.canStart ? "#4a9fd4" : "#e2e8f0",
                     color: card.canStart ? "#fff" : "#708193",
                     border: "none",
                     borderRadius: 12,
