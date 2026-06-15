@@ -118,6 +118,11 @@ function timeLabel(seconds) {
   return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 }
 
+function formatScore(value) {
+  if (value === null || value === undefined || value === "") return "—";
+  return Number(value).toFixed(2).replace(".00", "");
+}
+
 function getOpenRouterApiKey() {
   return window.localStorage.getItem(OPENROUTER_KEY_STORAGE)?.trim() || OPENROUTER_API_KEY || "";
 }
