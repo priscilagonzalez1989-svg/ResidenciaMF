@@ -268,11 +268,14 @@ export async function fetchResidentActiveTemplates(anio) {
     .is("residente_id", null)
     .eq("activo", true)
     .eq("seccion", CARDIOLOGY_SECTION)
-    .contains("anio_habilitado", [anio])
     .order("created_at", { ascending: false });
 
   if (error) throw error;
-  return data || [];
+  return (data || []).filter((item) => {
+    if (!anio) return true;
+    if (!Array.isArray(item.anio_habilitado) || item.anio_habilitado.length === 0) return true;
+    return item.anio_habilitado.includes(anio);
+  });
 }
 
 export async function fetchResidentTemplateAttempts(residenteId, templateIds = []) {
