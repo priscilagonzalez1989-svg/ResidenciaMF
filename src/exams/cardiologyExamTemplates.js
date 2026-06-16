@@ -337,21 +337,26 @@ export function summarizeResidentTemplate(template, attempts = [], assignments =
   const latestAttempt = [...attempts].sort(
     (a, b) => new Date(b.finalizado_at || b.created_at || 0).getTime() - new Date(a.finalizado_at || a.created_at || 0).getTime()
   )[0] || null;
+  const now = Date.now();
+  const started = !template.fecha_inicio || new Date(template.fecha_inicio).getTime() <= now;
+  const notEnded = !template.fecha_fin || new Date(template.fecha_fin).getTime() >= now;
+  const isAvailable = Boolean(template.activo && started && notEnded);
 
-  let status = "Disponible";
-  let action = "Iniciar examen";
-  let canStart = true;
+  let status = isAvailable ? "Disponible" : "Programado";
+  let action = "Rendir";
+  let canStart = isAvailable;
 
   if (latestAttempt?.estado === "en_curso") {
     status = "En curso";
     action = "Continuar";
+    canStart = true;
   } else if (latestAttempt && latestAttempt.finalizado_at && latestAttempt.puntaje_total == null) {
     status = "Enviado — pendiente de corrección";
     action = "Pendiente";
     canStart = false;
   } else if (latestAttempt && latestAttempt.puntaje_total != null) {
     status = "Completado";
-    action = "Ver resultado";
+    action = "Rendido";
     canStart = false;
   }
 

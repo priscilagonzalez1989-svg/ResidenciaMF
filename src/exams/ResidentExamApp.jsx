@@ -382,6 +382,35 @@ function firstUnansweredIndex(steps, answersMap) {
   return index === -1 ? Math.max(steps.length - 1, 0) : index;
 }
 
+function buildResidentProgrammedCards(templates, attempts, assignmentsByTemplate) {
+  const groups = new Map();
+
+  templates.forEach((template) => {
+    const key = template.seccion || template.rotacion || template.id;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(template);
+  });
+
+  return [...groups.values()].map((group) => {
+    const activeRecovery = group.find((template) => template.examen_padre_id && template.activo);
+    const activeBase = group.find((template) => !template.examen_padre_id && template.activo);
+    const fallbackBase = group.find((template) => !template.examen_padre_id);
+    const selectedTemplate = activeRecovery || activeBase || fallbackBase || group[0];
+    const groupIds = group.map((template) => template.id);
+    const groupAttempts = attempts.filter((attempt) => groupIds.includes(attempt.examen_padre_id));
+    const summary = summarizeResidentTemplate(
+      selectedTemplate,
+      groupAttempts,
+      assignmentsByTemplate[selectedTemplate.id] || []
+    );
+
+    return {
+      ...summary,
+      displayLabel: selectedTemplate.rotacion || selectedTemplate.seccion || "Cardiología",
+    };
+  });
+}
+
 export default function ResidentExamApp({ user, onLogout }) {
   const [resident, setResident] = useState(null);
   const [rotationStates, setRotationStates] = useState([]);
@@ -440,15 +469,7 @@ export default function ResidentExamApp({ user, onLogout }) {
         const attempts = await fetchResidentTemplateAttempts(residente.id, templates.map((item) => item.id));
         if (!active) return;
         const assignmentsByTemplate = Object.fromEntries(assignmentsEntries);
-        setTemplateCards(
-          templates.map((template) =>
-            summarizeResidentTemplate(
-              template,
-              attempts.filter((attempt) => attempt.examen_padre_id === template.id),
-              assignmentsByTemplate[template.id] || []
-            )
-          )
-        );
+        setTemplateCards(buildResidentProgrammedCards(templates, attempts, assignmentsByTemplate));
       } catch (err) {
         if (!active) return;
         setError(err.message);
@@ -529,11 +550,6 @@ export default function ResidentExamApp({ user, onLogout }) {
 
   const domainProgress = useMemo(() => getDomainProgress(allSteps, currentIndex), [allSteps, currentIndex]);
   const canContinue = currentText.trim().length > 0 && !timeExpired && !exitSubmitting;
-  const visibleTemplateCards = useMemo(
-    () => templateCards.filter((card) => !card.isRecoveryTemplate),
-    [templateCards]
-  );
-
   async function refreshRotationStates(residenteId = resident?.id) {
     if (!residenteId) return;
     const exams = await fetchRotationExams(residenteId);
@@ -549,15 +565,7 @@ export default function ResidentExamApp({ user, onLogout }) {
       );
       const attempts = await fetchResidentTemplateAttempts(residenteId, templates.map((item) => item.id));
       const assignmentsByTemplate = Object.fromEntries(assignmentsEntries);
-      setTemplateCards(
-        templates.map((template) =>
-          summarizeResidentTemplate(
-            template,
-            attempts.filter((attempt) => attempt.examen_padre_id === template.id),
-            assignmentsByTemplate[template.id] || []
-          )
-        )
-      );
+      setTemplateCards(buildResidentProgrammedCards(templates, attempts, assignmentsByTemplate));
     }
   }
 
@@ -1162,17 +1170,17 @@ export default function ResidentExamApp({ user, onLogout }) {
           </div>
         )}
 
-        {visibleTemplateCards.length > 0 && (
+        {templateCards.length > 0 && (
           <div style={{ display: "grid", gap: 14 }}>
             <div>
               <div style={{ fontSize: 22, fontWeight: 800, color: "#0f2744", marginBottom: 6 }}>Exámenes programados</div>
               <div style={{ color: "#6c7d90", fontSize: 14 }}>Evaluaciones activadas por coordinación para tu año de residencia.</div>
             </div>
-            {visibleTemplateCards.map((card) => (
+            {templateCards.map((card) => (
               <div key={card.template.id} style={{ background: "#fff", borderRadius: 18, border: "1px solid #e2e8f0", padding: isMobile ? "18px 16px" : "22px 24px", display: "flex", alignItems: isMobile ? "stretch" : "center", justifyContent: "space-between", gap: 20, flexDirection: isMobile ? "column" : "row" }}>
                 <div>
                   <div style={{ fontSize: isMobile ? 22 : 20, fontWeight: 800, color: "#0f2744", marginBottom: 6 }}>
-                    {card.template.rotacion || "Cardiología"}
+                    {card.displayLabel}
                   </div>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
                     <HeaderBadge text={card.status} color="#0f2744" background="#eef4fb" />
