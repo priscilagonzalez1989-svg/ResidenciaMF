@@ -118,11 +118,6 @@ function timeLabel(seconds) {
   return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 }
 
-function formatScore(value) {
-  if (value === null || value === undefined || value === "") return "—";
-  return Number(value).toFixed(2).replace(".00", "");
-}
-
 function getOpenRouterApiKey() {
   return window.localStorage.getItem(OPENROUTER_KEY_STORAGE)?.trim() || OPENROUTER_API_KEY || "";
 }
@@ -1179,17 +1174,9 @@ export default function ResidentExamApp({ user, onLogout }) {
                   <div style={{ fontSize: isMobile ? 22 : 20, fontWeight: 800, color: "#0f2744", marginBottom: 6 }}>
                     {card.template.rotacion || "Cardiología"}
                   </div>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
                     <HeaderBadge text={card.status} color="#0f2744" background="#eef4fb" />
-                    <HeaderBadge text={`${card.questionCount} pregunta${card.questionCount === 1 ? "" : "s"}`} color="#506478" background="#f4f7fb" />
-                    {card.latestAttempt?.puntaje_total != null ? (
-                      <HeaderBadge text={`Último puntaje: ${formatScore(card.latestAttempt.puntaje_total)}`} color="#166534" background="#dcfce7" />
-                    ) : (
-                      <HeaderBadge text={`${formatScore(card.totalScore)} pts`} color="#166534" background="#dcfce7" />
-                    )}
-                  </div>
-                  <div style={{ color: "#6c7d90", fontSize: 14, marginTop: 8 }}>
-                    Dominios: {card.domains.join(" · ") || "Sin dominios"} · Disponible hasta {card.template.fecha_fin ? new Date(card.template.fecha_fin).toLocaleString("es-AR") : "sin cierre"}
+                    <HeaderBadge text={`${card.attempts.length} intento${card.attempts.length === 1 ? "" : "s"}`} color="#506478" background="#f4f7fb" />
                   </div>
                 </div>
                 <button
@@ -1208,7 +1195,7 @@ export default function ResidentExamApp({ user, onLogout }) {
                     cursor: card.canStart && !busy ? "pointer" : "not-allowed",
                   }}
                 >
-                  {card.action}
+                  {card.canStart ? "Rendir" : "Rendido"}
                 </button>
               </div>
             ))}
