@@ -15,6 +15,12 @@ import {
   fetchTemplateAssignments,
   setTemplateActive,
 } from "../exams/cardiologyExamTemplates";
+import {
+  buildPediatriaRecoveryPreview,
+  createPediatriaRecoveryTemplate,
+  createPediatriaTemplate,
+  fetchPediatriaTemplates,
+} from "../exams/pediatricsExamTemplates";
 
 const DEFAULT_FILTERS = {
   rotacion: "Todas",
@@ -28,6 +34,12 @@ const DEFAULT_TEMPLATE_FORM = {
   fechaInicio: "",
   fechaFin: "",
   hasImagen: false,
+};
+
+const DEFAULT_PEDIATRIA_TEMPLATE_FORM = {
+  titulo: "",
+  fechaInicio: "",
+  fechaFin: "",
 };
 
 function StatusBadge({ text, color, background }) {
@@ -117,12 +129,30 @@ function EmptyState() {
   );
 }
 
-function EmptyTemplatesState() {
+function EmptyTemplatesState({ message }) {
   return (
     <div style={{ border: "1px dashed #cfd9e4", borderRadius: 18, background: "#fff", padding: "28px 24px", textAlign: "center", color: "#607284" }}>
-      Todavía no hay plantillas de Cardiología R2 creadas.
+      {message}
     </div>
   );
+}
+
+function getTemplateSectionKey(template) {
+  if (template?.seccion === "Cardiologia") return "cardiologia";
+  if (template?.rotacion === "Pediatría") return "pediatria";
+  return "cardiologia";
+}
+
+function getTemplateHeading(template) {
+  if (getTemplateSectionKey(template) === "pediatria") {
+    return template?.titulo || "Pediatría R2";
+  }
+  return template?.titulo || "Cardiología R2";
+}
+
+function getTemplateBadgeLabel(template) {
+  if (getTemplateSectionKey(template) === "pediatria") return "Pediatría";
+  return "Cardiología";
 }
 
 function canCreateRecovery(template) {
@@ -230,12 +260,12 @@ function TemplateDetailModal({ template, onClose, onActivate, onDeactivate, onPr
         <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", marginBottom: 20 }}>
           <div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-              <StatusBadge text={template.seccion || "Cardiología"} color="#0f2744" background="#eef4fb" />
+              <StatusBadge text={getTemplateBadgeLabel(template)} color="#0f2744" background="#eef4fb" />
               <StatusBadge text={template.activo ? "Activo" : "Inactivo"} color={template.activo ? "#166534" : "#7c2d12"} background={template.activo ? "#dcfce7" : "#ffedd5"} />
               {template.examen_padre_id ? <StatusBadge text="Recuperatorio" color="#6b4e00" background="#fff2cf" /> : null}
               {template.has_imagen ? <StatusBadge text="Incluye imágenes" color="#164e63" background="#daf5fb" /> : null}
             </div>
-            <h2 style={{ margin: 0, fontSize: 28, fontWeight: 800, color: "#0f2744" }}>{template.titulo || "Cardiología R2"}</h2>
+            <h2 style={{ margin: 0, fontSize: 28, fontWeight: 800, color: "#0f2744" }}>{getTemplateHeading(template)}</h2>
             <p style={{ margin: "8px 0 0", color: "#6c7d90", fontSize: 14 }}>
               Año habilitado: {(template.anio_habilitado || []).join(", ") || "R2"} · Inicio {formatDateTime(template.fecha_inicio)} · Cierre {formatDateTime(template.fecha_fin)}
             </p>
@@ -355,17 +385,37 @@ function hydrateTemplates(rawTemplates, assignmentsByTemplate) {
   });
 }
 
+async function loadTemplateCollections() {
+  const [cardiologyRaw, pediatriaRaw] = await Promise.all([
+    fetchCardiologyTemplates(),
+    fetchPediatriaTemplates(),
+  ]);
+
+  const allTemplates = [...cardiologyRaw, ...pediatriaRaw];
+  const assignmentsEntries = await Promise.all(
+    allTemplates.map(async (template) => [template.id, await fetchTemplateAssignments(template.id)])
+  );
+  const assignmentsByTemplate = Object.fromEntries(assignmentsEntries);
+
+  return {
+    cardiologia: hydrateTemplates(cardiologyRaw, assignmentsByTemplate),
+    pediatria: hydrateTemplates(pediatriaRaw, assignmentsByTemplate),
+  };
+}
+
 export default function ExamenesPanel({ user }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [dataset, setDataset] = useState({ exams: [], residents: [] });
-  const [templates, setTemplates] = useState([]);
+  const [cardiologyTemplates, setCardiologyTemplates] = useState([]);
+  const [pediatriaTemplates, setPediatriaTemplates] = useState([]);
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [selectedExam, setSelectedExam] = useState(null);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [recoveryPreview, setRecoveryPreview] = useState(null);
   const [templateForm, setTemplateForm] = useState(DEFAULT_TEMPLATE_FORM);
+  const [pediatriaTemplateForm, setPediatriaTemplateForm] = useState(DEFAULT_PEDIATRIA_TEMPLATE_FORM);
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
   const [showFilters, setShowFilters] = useState(false);
   const [templateBusyId, setTemplateBusyId] = useState("");
@@ -381,19 +431,13 @@ export default function ExamenesPanel({ user }) {
   }, []);
 
   const refreshData = async () => {
-    const [nextDataset, nextTemplates] = await Promise.all([
+    const [nextDataset, nextTemplateCollections] = await Promise.all([
       loadExamDataset(),
-      fetchCardiologyTemplates(),
+      loadTemplateCollections(),
     ]);
-
-    const assignmentsEntries = await Promise.all(
-      nextTemplates.map(async (template) => [template.id, await fetchTemplateAssignments(template.id)])
-    );
-
-    const assignmentsByTemplate = Object.fromEntries(assignmentsEntries);
-
     setDataset(nextDataset);
-    setTemplates(hydrateTemplates(nextTemplates, assignmentsByTemplate));
+    setCardiologyTemplates(nextTemplateCollections.cardiologia);
+    setPediatriaTemplates(nextTemplateCollections.pediatria);
   };
 
   useEffect(() => {
@@ -403,16 +447,14 @@ export default function ExamenesPanel({ user }) {
       setLoading(true);
       setError("");
       try {
-        const [nextDataset, nextTemplates] = await Promise.all([
+        const [nextDataset, nextTemplateCollections] = await Promise.all([
           loadExamDataset(),
-          fetchCardiologyTemplates(),
+          loadTemplateCollections(),
         ]);
-        const assignmentsEntries = await Promise.all(
-          nextTemplates.map(async (template) => [template.id, await fetchTemplateAssignments(template.id)])
-        );
         if (!active) return;
         setDataset(nextDataset);
-        setTemplates(hydrateTemplates(nextTemplates, Object.fromEntries(assignmentsEntries)));
+        setCardiologyTemplates(nextTemplateCollections.cardiologia);
+        setPediatriaTemplates(nextTemplateCollections.pediatria);
       } catch (err) {
         if (!active) return;
         setError(err.message);
@@ -454,22 +496,36 @@ export default function ExamenesPanel({ user }) {
     });
   }, [dataset.exams, filters]);
 
-  const handleCreateTemplate = async () => {
+  const handleCreateTemplate = async (sectionKey) => {
     setCreatingTemplate(true);
     setError("");
     setNotice("");
     try {
-      const created = await createCardiologyTemplate({
-        userId: user?.id || null,
-        titulo: templateForm.titulo,
-        fechaInicio: templateForm.fechaInicio ? new Date(templateForm.fechaInicio).toISOString() : null,
-        fechaFin: templateForm.fechaFin ? new Date(templateForm.fechaFin).toISOString() : null,
-        hasImagen: templateForm.hasImagen,
-      });
+      const isPediatria = sectionKey === "pediatria";
+      const currentForm = isPediatria ? pediatriaTemplateForm : templateForm;
+      const created = isPediatria
+        ? await createPediatriaTemplate({
+            userId: user?.id || null,
+            titulo: currentForm.titulo,
+            fechaInicio: currentForm.fechaInicio ? new Date(currentForm.fechaInicio).toISOString() : null,
+            fechaFin: currentForm.fechaFin ? new Date(currentForm.fechaFin).toISOString() : null,
+          })
+        : await createCardiologyTemplate({
+            userId: user?.id || null,
+            titulo: currentForm.titulo,
+            fechaInicio: currentForm.fechaInicio ? new Date(currentForm.fechaInicio).toISOString() : null,
+            fechaFin: currentForm.fechaFin ? new Date(currentForm.fechaFin).toISOString() : null,
+            hasImagen: currentForm.hasImagen,
+          });
       await refreshData();
       setSelectedTemplate(created);
-      setTemplateForm(DEFAULT_TEMPLATE_FORM);
-      setNotice("Se creó la plantilla de Cardiología R2 con 2 integradoras fijas, 3 visibles aleatorias y 1 reserva oculta.");
+      if (isPediatria) {
+        setPediatriaTemplateForm(DEFAULT_PEDIATRIA_TEMPLATE_FORM);
+        setNotice("Se creó la plantilla de Pediatría R2 con 2 integradoras fijas, 3 visibles aleatorias y 1 reserva oculta.");
+      } else {
+        setTemplateForm(DEFAULT_TEMPLATE_FORM);
+        setNotice("Se creó la plantilla de Cardiología R2 con 2 integradoras fijas, 3 visibles aleatorias y 1 reserva oculta.");
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -503,7 +559,10 @@ export default function ExamenesPanel({ user }) {
     setError("");
     setNotice("");
     try {
-      const preview = await buildRecoveryPreview(template);
+      const preview =
+        getTemplateSectionKey(template) === "pediatria"
+          ? await buildPediatriaRecoveryPreview(template)
+          : await buildRecoveryPreview(template);
       setRecoveryPreview(preview);
     } catch (err) {
       setError(err.message);
@@ -518,15 +577,26 @@ export default function ExamenesPanel({ user }) {
     setError("");
     setNotice("");
     try {
-      const created = await createRecoveryTemplate({
-        originalTemplateId: recoveryPreview.sourceTemplate.id,
-        preview: recoveryPreview,
-        userId: user?.id || null,
-      });
+      const isPediatria = getTemplateSectionKey(recoveryPreview.sourceTemplate) === "pediatria";
+      const created = isPediatria
+        ? await createPediatriaRecoveryTemplate({
+            originalTemplateId: recoveryPreview.sourceTemplate.id,
+            preview: recoveryPreview,
+            userId: user?.id || null,
+          })
+        : await createRecoveryTemplate({
+            originalTemplateId: recoveryPreview.sourceTemplate.id,
+            preview: recoveryPreview,
+            userId: user?.id || null,
+          });
       await refreshData();
       setRecoveryPreview(null);
       setSelectedTemplate(created);
-      setNotice("Recuperatorio creado y guardado como nueva plantilla inactiva para revisión.");
+      setNotice(
+        isPediatria
+          ? "Recuperatorio de Pediatría creado y guardado como nueva plantilla inactiva para revisión."
+          : "Recuperatorio creado y guardado como nueva plantilla inactiva para revisión."
+      );
     } catch (err) {
       setError(err.message);
     } finally {
@@ -534,13 +604,41 @@ export default function ExamenesPanel({ user }) {
     }
   };
 
+  const totalTemplates = cardiologyTemplates.length + pediatriaTemplates.length;
+  const templateSections = [
+    {
+      key: "cardiologia",
+      icon: "🫀",
+      title: "Cardiología R2",
+      description: "Cada plantilla fija las preguntas 257 y 258, suma tres preguntas visibles aleatorias y deja una reserva oculta para recuperatorio.",
+      templates: cardiologyTemplates,
+      emptyMessage: "Todavía no hay plantillas de Cardiología R2 creadas.",
+      form: templateForm,
+      setForm: setTemplateForm,
+      placeholder: "Cardiología R2 · junio 2026",
+      allowHasImagen: true,
+    },
+    {
+      key: "pediatria",
+      icon: "👶",
+      title: "Pediatría R2",
+      description: "Cada plantilla fija las preguntas 259 y 260, suma tres preguntas visibles aleatorias del pool R2 no integrador y deja una reserva oculta para recuperatorio.",
+      templates: pediatriaTemplates,
+      emptyMessage: "Todavía no hay plantillas de Pediatría R2 creadas.",
+      form: pediatriaTemplateForm,
+      setForm: setPediatriaTemplateForm,
+      placeholder: "Pediatría R2 · junio 2026",
+      allowHasImagen: false,
+    },
+  ];
+
   return (
     <div style={{ display: "grid", gap: 24, padding: isMobile ? 16 : 28 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 30, fontWeight: 800, color: "#0f2744" }}>Exámenes</h1>
           <p style={{ margin: "10px 0 0", color: "#6c7d90", fontSize: 15 }}>
-            Gestión de plantillas de Cardiología R2 y seguimiento del historial rendido por residentes.
+            Gestión de plantillas programadas de Cardiología R2 y Pediatría R2, con recuperatorios y seguimiento del historial rendido por residentes.
           </p>
         </div>
         <div style={{ minWidth: 180, background: "#0f2744", color: "#fff", borderRadius: 20, padding: "16px 18px" }}>
@@ -561,116 +659,136 @@ export default function ExamenesPanel({ user }) {
         </div>
       )}
 
-      <section style={{ background: "#fff", borderRadius: 24, border: "1px solid #dfe7f1", padding: isMobile ? 18 : 24, display: "grid", gap: 20 }}>
+      <section style={{ background: "#fff", borderRadius: 24, border: "1px solid #dfe7f1", padding: isMobile ? 18 : 24, display: "grid", gap: 24 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
           <div>
-            <h2 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: "#0f2744" }}>Cardiología R2</h2>
+            <h2 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: "#0f2744" }}>Exámenes programados R2</h2>
             <p style={{ margin: "8px 0 0", color: "#6c7d90", fontSize: 14, lineHeight: 1.6, maxWidth: 760 }}>
-              Cada plantilla fija las preguntas 257 y 258, suma tres preguntas visibles aleatorias y deja una reserva oculta para recuperatorio.
+              Gestión de plantillas de Cardiología R2 y Pediatría R2 con recuperatorios y seguimiento del historial rendido por residentes.
             </p>
           </div>
-          <StatusBadge text={`${templates.length} plantilla${templates.length === 1 ? "" : "s"}`} color="#0f2744" background="#eef4fb" />
+          <StatusBadge text={`${totalTemplates} plantilla${totalTemplates === 1 ? "" : "s"}`} color="#0f2744" background="#eef4fb" />
         </div>
 
-        {isAdmin && (
-          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr 1fr auto", gap: 12, alignItems: "end", background: "#f8fbff", border: "1px solid #dfe7f1", borderRadius: 18, padding: 16 }}>
-            <label style={{ display: "grid", gap: 8 }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: "#607284" }}>Título</span>
-              <input
-                value={templateForm.titulo}
-                onChange={(event) => setTemplateForm((current) => ({ ...current, titulo: event.target.value }))}
-                placeholder="Cardiología R2 · junio 2026"
-                style={{ height: 44, border: "1px solid #d7e1ec", borderRadius: 12, padding: "0 12px", fontSize: 14, fontFamily: "inherit" }}
-              />
-            </label>
-            <label style={{ display: "grid", gap: 8 }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: "#607284" }}>Disponible desde</span>
-              <input
-                type="datetime-local"
-                value={templateForm.fechaInicio}
-                onChange={(event) => setTemplateForm((current) => ({ ...current, fechaInicio: event.target.value }))}
-                style={{ height: 44, border: "1px solid #d7e1ec", borderRadius: 12, padding: "0 12px", fontSize: 14, fontFamily: "inherit" }}
-              />
-            </label>
-            <label style={{ display: "grid", gap: 8 }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: "#607284" }}>Disponible hasta</span>
-              <input
-                type="datetime-local"
-                value={templateForm.fechaFin}
-                onChange={(event) => setTemplateForm((current) => ({ ...current, fechaFin: event.target.value }))}
-                style={{ height: 44, border: "1px solid #d7e1ec", borderRadius: 12, padding: "0 12px", fontSize: 14, fontFamily: "inherit" }}
-              />
-            </label>
-            <div style={{ display: "grid", gap: 10 }}>
-              <label style={{ display: "flex", alignItems: "center", gap: 10, color: "#1a2e44", fontSize: 14, fontWeight: 600 }}>
-                <input
-                  type="checkbox"
-                  checked={templateForm.hasImagen}
-                  onChange={(event) => setTemplateForm((current) => ({ ...current, hasImagen: event.target.checked }))}
-                />
-                Permitir preguntas con imagen
-              </label>
-              <button
-                onClick={handleCreateTemplate}
-                disabled={creatingTemplate}
-                style={{ minHeight: 46, border: "none", borderRadius: 12, background: "#0f2744", color: "#fff", padding: "0 18px", fontWeight: 700, cursor: "pointer", opacity: creatingTemplate ? 0.7 : 1 }}
-              >
-                {creatingTemplate ? "Creando..." : "Crear examen"}
-              </button>
+        {templateSections.map((section) => (
+          <div key={section.key} style={{ display: "grid", gap: 20, borderTop: "1px solid #edf2f7", paddingTop: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: "#0f2744" }}>
+                  {section.icon} {section.title}
+                </h3>
+                <p style={{ margin: "8px 0 0", color: "#6c7d90", fontSize: 14, lineHeight: 1.6, maxWidth: 760 }}>
+                  {section.description}
+                </p>
+              </div>
+              <StatusBadge text={`${section.templates.length} plantilla${section.templates.length === 1 ? "" : "s"}`} color="#0f2744" background="#eef4fb" />
             </div>
-          </div>
-        )}
 
-        {loading ? (
-          <div style={{ color: "#607284" }}>Cargando plantillas...</div>
-        ) : templates.length === 0 ? (
-          <EmptyTemplatesState />
-        ) : (
-          <div style={{ display: "grid", gap: 14 }}>
-            {templates.map((template) => (
-              <div key={template.id} style={{ border: "1px solid #dfe7f1", borderRadius: 18, background: "#fff", padding: isMobile ? 16 : 20, display: "grid", gap: 14 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
-                  <div>
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-                      <StatusBadge text={template.activo ? "Activo" : "Inactivo"} color={template.activo ? "#166534" : "#7c2d12"} background={template.activo ? "#dcfce7" : "#ffedd5"} />
-                      {template.examen_padre_id ? <StatusBadge text="Recuperatorio" color="#6b4e00" background="#fff2cf" /> : null}
-                      {template.has_imagen ? <StatusBadge text="Con imagen" color="#164e63" background="#daf5fb" /> : null}
-                    </div>
-                    <div style={{ fontSize: 20, fontWeight: 800, color: "#0f2744" }}>{template.titulo || "Cardiología R2"}</div>
-                    <div style={{ marginTop: 6, color: "#6c7d90", fontSize: 14 }}>
-                      Visibles: {template.visibleAssignments.length} · Reservas: {template.reserveAssignments.length} · Vigencia {formatDateTime(template.fecha_inicio)} → {formatDateTime(template.fecha_fin)}
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                    <button onClick={() => setSelectedTemplate(template)} style={{ minHeight: 44, border: "1px solid #d7e1ec", borderRadius: 12, background: "#fff", color: "#1a2e44", padding: "0 16px", fontWeight: 700, cursor: "pointer" }}>
-                      Ver detalle
-                    </button>
-                    {isAdmin && (
-                      <>
-                        <button
-                          onClick={() => handleToggleTemplate(template, !template.activo)}
-                          disabled={templateBusyId === template.id}
-                          style={{ minHeight: 44, border: "none", borderRadius: 12, background: template.activo ? "#fff1f2" : "#0f2744", color: template.activo ? "#9f1239" : "#fff", padding: "0 16px", fontWeight: 700, cursor: "pointer", opacity: templateBusyId === template.id ? 0.7 : 1 }}
-                        >
-                          {templateBusyId === template.id ? "Actualizando..." : template.activo ? "Desactivar" : "Activar para R2"}
-                        </button>
-                        {canCreateRecovery(template) ? (
-                          <button
-                            onClick={() => handlePreviewRecovery(template)}
-                            disabled={templateBusyId === template.id}
-                            style={{ minHeight: 44, border: "1px solid #d7e1ec", borderRadius: 12, background: "#fff", color: "#1a2e44", padding: "0 16px", fontWeight: 700, cursor: "pointer", opacity: templateBusyId === template.id ? 0.7 : 1 }}
-                          >
-                            Crear recuperatorio
-                          </button>
-                        ) : null}
-                      </>
-                    )}
-                  </div>
+            {isAdmin && (
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : section.allowHasImagen ? "2fr 1fr 1fr auto" : "2fr 1fr 1fr auto", gap: 12, alignItems: "end", background: "#f8fbff", border: "1px solid #dfe7f1", borderRadius: 18, padding: 16 }}>
+                <label style={{ display: "grid", gap: 8 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "#607284" }}>Título</span>
+                  <input
+                    value={section.form.titulo}
+                    onChange={(event) => section.setForm((current) => ({ ...current, titulo: event.target.value }))}
+                    placeholder={section.placeholder}
+                    style={{ height: 44, border: "1px solid #d7e1ec", borderRadius: 12, padding: "0 12px", fontSize: 14, fontFamily: "inherit" }}
+                  />
+                </label>
+                <label style={{ display: "grid", gap: 8 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "#607284" }}>Disponible desde</span>
+                  <input
+                    type="datetime-local"
+                    value={section.form.fechaInicio}
+                    onChange={(event) => section.setForm((current) => ({ ...current, fechaInicio: event.target.value }))}
+                    style={{ height: 44, border: "1px solid #d7e1ec", borderRadius: 12, padding: "0 12px", fontSize: 14, fontFamily: "inherit" }}
+                  />
+                </label>
+                <label style={{ display: "grid", gap: 8 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "#607284" }}>Disponible hasta</span>
+                  <input
+                    type="datetime-local"
+                    value={section.form.fechaFin}
+                    onChange={(event) => section.setForm((current) => ({ ...current, fechaFin: event.target.value }))}
+                    style={{ height: 44, border: "1px solid #d7e1ec", borderRadius: 12, padding: "0 12px", fontSize: 14, fontFamily: "inherit" }}
+                  />
+                </label>
+                <div style={{ display: "grid", gap: 10 }}>
+                  {section.allowHasImagen ? (
+                    <label style={{ display: "flex", alignItems: "center", gap: 10, color: "#1a2e44", fontSize: 14, fontWeight: 600 }}>
+                      <input
+                        type="checkbox"
+                        checked={section.form.hasImagen}
+                        onChange={(event) => section.setForm((current) => ({ ...current, hasImagen: event.target.checked }))}
+                      />
+                      Permitir preguntas con imagen
+                    </label>
+                  ) : (
+                    <div style={{ minHeight: 22, fontSize: 13, color: "#607284" }}>Sin filtro de imágenes para este examen.</div>
+                  )}
+                  <button
+                    onClick={() => handleCreateTemplate(section.key)}
+                    disabled={creatingTemplate}
+                    style={{ minHeight: 46, border: "none", borderRadius: 12, background: "#0f2744", color: "#fff", padding: "0 18px", fontWeight: 700, cursor: "pointer", opacity: creatingTemplate ? 0.7 : 1 }}
+                  >
+                    {creatingTemplate ? "Creando..." : "Crear examen"}
+                  </button>
                 </div>
               </div>
-            ))}
+            )}
+
+            {loading ? (
+              <div style={{ color: "#607284" }}>Cargando plantillas...</div>
+            ) : section.templates.length === 0 ? (
+              <EmptyTemplatesState message={section.emptyMessage} />
+            ) : (
+              <div style={{ display: "grid", gap: 14 }}>
+                {section.templates.map((template) => (
+                  <div key={template.id} style={{ border: "1px solid #dfe7f1", borderRadius: 18, background: "#fff", padding: isMobile ? 16 : 20, display: "grid", gap: 14 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
+                      <div>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+                          <StatusBadge text={template.activo ? "Activo" : "Inactivo"} color={template.activo ? "#166534" : "#7c2d12"} background={template.activo ? "#dcfce7" : "#ffedd5"} />
+                          {template.examen_padre_id ? <StatusBadge text="Recuperatorio" color="#6b4e00" background="#fff2cf" /> : null}
+                          {template.has_imagen ? <StatusBadge text="Con imagen" color="#164e63" background="#daf5fb" /> : null}
+                        </div>
+                        <div style={{ fontSize: 20, fontWeight: 800, color: "#0f2744" }}>{getTemplateHeading(template)}</div>
+                        <div style={{ marginTop: 6, color: "#6c7d90", fontSize: 14 }}>
+                          Visibles: {template.visibleAssignments.length} · Reservas: {template.reserveAssignments.length} · Vigencia {formatDateTime(template.fecha_inicio)} → {formatDateTime(template.fecha_fin)}
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                        <button onClick={() => setSelectedTemplate(template)} style={{ minHeight: 44, border: "1px solid #d7e1ec", borderRadius: 12, background: "#fff", color: "#1a2e44", padding: "0 16px", fontWeight: 700, cursor: "pointer" }}>
+                          Ver detalle
+                        </button>
+                        {isAdmin && (
+                          <>
+                            <button
+                              onClick={() => handleToggleTemplate(template, !template.activo)}
+                              disabled={templateBusyId === template.id}
+                              style={{ minHeight: 44, border: "none", borderRadius: 12, background: template.activo ? "#fff1f2" : "#0f2744", color: template.activo ? "#9f1239" : "#fff", padding: "0 16px", fontWeight: 700, cursor: "pointer", opacity: templateBusyId === template.id ? 0.7 : 1 }}
+                            >
+                              {templateBusyId === template.id ? "Actualizando..." : template.activo ? "Desactivar" : "Activar para R2"}
+                            </button>
+                            {canCreateRecovery(template) ? (
+                              <button
+                                onClick={() => handlePreviewRecovery(template)}
+                                disabled={templateBusyId === template.id}
+                                style={{ minHeight: 44, border: "1px solid #d7e1ec", borderRadius: 12, background: "#fff", color: "#1a2e44", padding: "0 16px", fontWeight: 700, cursor: "pointer", opacity: templateBusyId === template.id ? 0.7 : 1 }}
+                              >
+                                Crear recuperatorio
+                              </button>
+                            ) : null}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        )}
+        ))}
       </section>
 
       {isMobile && (

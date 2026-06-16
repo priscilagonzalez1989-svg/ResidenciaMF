@@ -8,6 +8,7 @@ import {
   fetchTemplateAssignments,
   summarizeResidentTemplate,
 } from "./cardiologyExamTemplates";
+import { fetchResidentPediatriaActiveTemplates } from "./pediatricsExamTemplates";
 
 const ROTACIONES = [
   { key: "medicina-familiar", label: "Medicina Familiar", bancoRotaciones: ["Medicina Familiar"], allowAdditional: true },
@@ -411,6 +412,28 @@ function buildResidentProgrammedCards(templates, attempts, assignmentsByTemplate
   });
 }
 
+async function loadResidentProgrammedCards({ anio, residenteId }) {
+  if (!residenteId) return [];
+
+  const [cardiologyTemplates, pediatriaTemplates] = await Promise.all([
+    fetchResidentActiveTemplates(anio),
+    fetchResidentPediatriaActiveTemplates(anio),
+  ]);
+
+  const templates = [...cardiologyTemplates, ...pediatriaTemplates];
+  if (!templates.length) return [];
+
+  const assignmentsEntries = await Promise.all(
+    templates.map(async (template) => [template.id, await fetchTemplateAssignments(template.id)])
+  );
+  const attempts = await fetchResidentTemplateAttempts(
+    residenteId,
+    templates.map((item) => item.id)
+  );
+  const assignmentsByTemplate = Object.fromEntries(assignmentsEntries);
+  return buildResidentProgrammedCards(templates, attempts, assignmentsByTemplate);
+}
+
 export default function ResidentExamApp({ user, onLogout }) {
   const [resident, setResident] = useState(null);
   const [rotationStates, setRotationStates] = useState([]);
@@ -455,7 +478,7 @@ export default function ResidentExamApp({ user, onLogout }) {
         setResident(residente);
         const [exams, templates] = await Promise.all([
           fetchRotationExams(residente.id),
-          fetchResidentActiveTemplates(residente.anio),
+          loadResidentProgrammedCards({ anio: residente.anio, residenteId: residente.id }),
         ]);
         if (!active) return;
         const grouped = ROTACIONES.map((rotation) => ({
@@ -463,13 +486,8 @@ export default function ResidentExamApp({ user, onLogout }) {
           exams: exams.filter((exam) => exam.rotacion === rotation.label),
         })).map((rotation) => ({ ...rotation, summary: getRotationStatus(rotation.exams) }));
         setRotationStates(grouped);
-        const assignmentsEntries = await Promise.all(
-          templates.map(async (template) => [template.id, await fetchTemplateAssignments(template.id)])
-        );
-        const attempts = await fetchResidentTemplateAttempts(residente.id, templates.map((item) => item.id));
         if (!active) return;
-        const assignmentsByTemplate = Object.fromEntries(assignmentsEntries);
-        setTemplateCards(buildResidentProgrammedCards(templates, attempts, assignmentsByTemplate));
+        setTemplateCards(templates);
       } catch (err) {
         if (!active) return;
         setError(err.message);
@@ -559,13 +577,8 @@ export default function ResidentExamApp({ user, onLogout }) {
     })).map((rotation) => ({ ...rotation, summary: getRotationStatus(rotation.exams) }));
     setRotationStates(grouped);
     if (resident?.anio) {
-      const templates = await fetchResidentActiveTemplates(resident.anio);
-      const assignmentsEntries = await Promise.all(
-        templates.map(async (template) => [template.id, await fetchTemplateAssignments(template.id)])
-      );
-      const attempts = await fetchResidentTemplateAttempts(residenteId, templates.map((item) => item.id));
-      const assignmentsByTemplate = Object.fromEntries(assignmentsEntries);
-      setTemplateCards(buildResidentProgrammedCards(templates, attempts, assignmentsByTemplate));
+      const templates = await loadResidentProgrammedCards({ anio: resident.anio, residenteId });
+      setTemplateCards(templates);
     }
   }
 
