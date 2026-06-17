@@ -19,10 +19,6 @@ const ROTACIONES = [
 
 const TARGET_ANIOS = ["R2", "R3"];
 const EXAM_DURATION_SECONDS = 60 * 60;
-const OPENROUTER_API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY || "";
-const OPENROUTER_SITE_URL = import.meta.env.VITE_OPENROUTER_SITE_URL || window.location.origin;
-const OPENROUTER_APP_NAME = import.meta.env.VITE_OPENROUTER_APP_NAME || "ResidenciaMF";
-const OPENROUTER_KEY_STORAGE = "residenciamf_openrouter_api_key";
 const SYSTEM_PROMPT = `Sos un evaluador médico experto en medicina familiar argentina. 
 Evaluá la respuesta del residente según la lista de cotejo provista. 
 Para cada ítem de la lista de cotejo indicá si fue cubierto (✓) o no (✗).
@@ -119,17 +115,7 @@ function timeLabel(seconds) {
   return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 }
 
-function getOpenRouterApiKey() {
-  return window.localStorage.getItem(OPENROUTER_KEY_STORAGE)?.trim() || OPENROUTER_API_KEY || "";
-}
-
 async function corregirPasoConIA(step, responseText) {
-  const apiKey = getOpenRouterApiKey();
-
-  if (!apiKey) {
-    throw new Error("Falta configurar VITE_OPENROUTER_API_KEY para corregir exámenes.");
-  }
-
   const prompt = `${SYSTEM_PROMPT}
 
 CASO CLÍNICO:
@@ -161,30 +147,23 @@ Respondé solo JSON con esta forma:
   "feedback": "texto breve y constructivo en español argentino"
 }`;
 
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const response = await fetch("/api/openrouter-grade", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-      "HTTP-Referer": OPENROUTER_SITE_URL,
-      "X-Title": OPENROUTER_APP_NAME,
     },
     body: JSON.stringify({
-      model: "anthropic/claude-sonnet-4-5",
-      temperature: 0.1,
-      max_tokens: 1200,
-      response_format: { type: "json_object" },
-      messages: [{ role: "user", content: prompt }],
+      prompt,
     }),
   });
 
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`OpenRouter devolvió ${response.status}: ${text}`);
+    const data = await response.json().catch(() => null);
+    throw new Error(data?.error || `No se pudo corregir el examen (${response.status}).`);
   }
 
   const data = await response.json();
-  return extraerJson(data.choices?.[0]?.message?.content || "");
+  return extraerJson(data.content || "");
 }
 
 async function fetchResidentByUser(user) {
