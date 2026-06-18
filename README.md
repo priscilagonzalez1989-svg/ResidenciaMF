@@ -1,12 +1,13 @@
 # ResidenciaMF — Sistema de Evaluación
 
-App web para la evaluación de residentes de Medicina Familiar con corrección automática por IA.
+App web para la evaluación de residentes de Medicina Familiar con autenticación por magic link, banco de preguntas en Supabase y corrección automática por IA.
 
 ---
 
 ## Stack
 - **Frontend:** React + Vite
-- **Corrección IA:** Claude API (Anthropic)
+- **Auth y base de datos:** Supabase
+- **Corrección IA:** OpenRouter vía función serverless en Vercel
 - **Deploy:** Vercel
 
 ---
@@ -19,7 +20,7 @@ npm install
 
 # 2. Crear archivo de variables de entorno
 cp .env.example .env
-# Completar VITE_ANTHROPIC_API_KEY con tu API key
+# Completar las variables del archivo .env
 
 # 3. Correr en modo desarrollo
 npm run dev
@@ -34,10 +35,20 @@ Abre http://localhost:5173 en el navegador.
 Crear un archivo `.env` en la raíz del proyecto:
 
 ```
-VITE_ANTHROPIC_API_KEY=sk-ant-...
+OPENROUTER_API_KEY=sk-or-...
+OPENROUTER_SITE_URL=https://www.examenmedfam.online
+OPENROUTER_APP_NAME=ResidenciaMF
+VITE_SUPABASE_URL=https://tu-proyecto.supabase.co
+VITE_SUPABASE_ANON_KEY=sb_publishable_...
 ```
 
-En Vercel, configurar esta misma variable en:
+Notas:
+
+- `OPENROUTER_API_KEY` se usa solo en el backend de Vercel y no debe llevar prefijo `VITE_`.
+- `VITE_SUPABASE_ANON_KEY` es el nombre recomendado para la clave pública de Supabase.
+- Por compatibilidad, el cliente también acepta `VITE_SUPABASE_KEY` si todavía existe en un entorno viejo.
+
+En Vercel, configurar estas variables en:
 Settings → Environment Variables
 
 ---
@@ -47,7 +58,12 @@ Settings → Environment Variables
 1. Subir este repositorio a GitHub
 2. Entrar a vercel.com → "Add New Project"
 3. Conectar el repositorio de GitHub
-4. En "Environment Variables" agregar `VITE_ANTHROPIC_API_KEY`
+4. En "Environment Variables" agregar:
+   - `OPENROUTER_API_KEY`
+   - `OPENROUTER_SITE_URL`
+   - `OPENROUTER_APP_NAME`
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_ANON_KEY`
 5. Click en "Deploy" — listo
 
 Vercel detecta automáticamente que es un proyecto Vite y configura todo solo.
@@ -70,10 +86,8 @@ residencia-mf/
 
 ---
 
-## Próximos pasos
+## Notas operativas
 
-- [ ] Conectar Supabase para auth y base de datos real
-- [ ] Cargar banco completo de 247 preguntas
-- [ ] Agregar R4 al banco
-- [ ] Panel admin para cargar nuevas preguntas
-- [ ] Conectar dominio personalizado
+- Los magic links de Supabase deben redirigir a `https://www.examenmedfam.online`.
+- La corrección de OpenRouter se resuelve desde `/api/openrouter-grade` para no exponer la API key en el navegador.
+- Los scripts de carga de banco usan `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` en `.env` solo para tareas administrativas locales.
